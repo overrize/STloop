@@ -1,4 +1,4 @@
-"""下载 STM32CubeF4 软件包"""
+"""下载 STM32Cube 软件包（按芯片系列 F1/F4/F7 等）"""
 import logging
 import shutil
 import sys
@@ -9,22 +9,37 @@ from pathlib import Path
 
 log = logging.getLogger("stloop")
 
-CUBE_VERSION = "1.28.0"
-CUBE_URL = f"https://github.com/STMicroelectronics/STM32CubeF4/archive/refs/tags/v{CUBE_VERSION}.zip"
+# 系列 -> (版本, 包名)，模板目前仅支持 F4
+CUBE_FAMILIES = {
+    "F1": ("1.8.0", "STM32CubeF1"),
+    "F4": ("1.28.0", "STM32CubeF4"),
+    "F7": ("1.17.0", "STM32CubeF7"),
+    "H7": ("1.11.0", "STM32CubeH7"),
+    "L4": ("1.18.0", "STM32CubeL4"),
+    "G4": ("1.5.0", "STM32CubeG4"),
+}
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
-DOWNLOAD_FAIL_HINT = """
-若自动下载反复失败，可手动下载后解压到 cube/STM32CubeF4：
-  • GitHub: https://github.com/STMicroelectronics/STM32CubeF4/releases
-  • 官方: https://www.st.com/en/embedded-software/stm32cubef4.html
+
+def _get_cube_url(family: str) -> str:
+    version, pkg = CUBE_FAMILIES.get(family.upper(), CUBE_FAMILIES["F4"])
+    return f"https://github.com/STMicroelectronics/{pkg}/archive/refs/tags/v{version}.zip"
+
+
+def get_fail_hint(family: str = "F4") -> str:
+    _, pkg = CUBE_FAMILIES.get(family.upper(), CUBE_FAMILIES["F4"])
+    return f"""
+若自动下载反复失败，可手动下载后解压到 cube/{pkg}：
+  • GitHub: https://github.com/STMicroelectronics/{pkg}/releases
+  • 官方: https://www.st.com/en/embedded-software/stm32cube{family.lower()}.html
   • 国内网络可配置代理: $env:HTTPS_PROXY="http://127.0.0.1:7890"
 """
 
 
-def _do_download(zip_path: Path) -> None:
+def _do_download(url: str, zip_path: Path) -> None:
     """执行单次下载"""
-    req = urllib.request.Request(CUBE_URL, headers={"User-Agent": "STLoop/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "STLoop/1.0"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         total = resp.headers.get("Content-Length")
         total_size = int(total) if total else -1
@@ -48,27 +63,36 @@ def _do_download(zip_path: Path) -> None:
     print()
 
 
-def download_cube(target_dir: Path, raise_on_fail: bool = True) -> Path:
+def download_cube(
+    target_dir: Path,
+    family: str = "F4",
+    raise_on_fail: bool = True,
+) -> Path:
     """
-    下载并解压 STM32CubeF4 到 target_dir。
-    raise_on_fail: True 时抛异常，False 时 sys.exit(1)
+    下载并解压 STM32Cube{family} 到 target_dir。
+    family: F1/F4/F7
     """
     target_dir = Path(target_dir).resolve()
-    log.info("检查 STM32CubeF4: %s", target_dir)
+    family = family.upper()
+    version, pkg = CUBE_FAMILIES.get(family, CUBE_FAMILIES["F4"])
+    url = _get_cube_url(family)
+    fail_hint = get_fail_hint(family)
+
+    log.info("检查 %s: %s", pkg, target_dir)
 
     if (target_dir / "Drivers").exists():
-        log.info("STM32CubeF4 已存在，跳过下载")
+        log.info("%s 已存在，跳过下载", pkg)
         return target_dir
 
     target_dir.parent.mkdir(parents=True, exist_ok=True)
-    zip_path = target_dir.parent / "STM32CubeF4.zip"
+    zip_path = target_dir.parent / f"{pkg}.zip"
 
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
-        log.info("下载尝试 %d/%d: %s", attempt, MAX_RETRIES, CUBE_URL)
-        print(f"正在下载 STM32CubeF4 v{CUBE_VERSION}... (尝试 {attempt}/{MAX_RETRIES})")
+        log.info("下载尝试 %d/%d: %s", attempt, MAX_RETRIES, url)
+        print(f"正在下载 {pkg} v{version}... (尝试 {attempt}/{MAX_RETRIES})")
         try:
-            _do_download(zip_path)
+            _do_download(url, zip_path)
             last_error = None
             break
         except urllib.error.HTTPError as e:
@@ -100,9 +124,9 @@ def download_cube(target_dir: Path, raise_on_fail: bool = True) -> Path:
                 time.sleep(RETRY_DELAY)
 
     if last_error is not None:
-        print(DOWNLOAD_FAIL_HINT, file=sys.stderr)
+        print(fail_hint, file=sys.stderr)
         if raise_on_fail:
-            raise RuntimeError(f"STM32CubeF4 下载失败: {last_error}") from last_error
+            raise RuntimeError(f"{pkg} 下载失败: {last_error}") from last_error
         sys.exit(1)
 
     if not zip_path.exists() or zip_path.stat().st_size < 1000:
@@ -137,9 +161,9 @@ def download_cube(target_dir: Path, raise_on_fail: bool = True) -> Path:
     zip_path.unlink(missing_ok=True)
 
     # 重命名
-    extracted = target_dir.parent / f"STM32CubeF4-{CUBE_VERSION}"
+    extracted = target_dir.parent / f"{pkg}-{version}"
     if not extracted.exists():
-        dirs = [d for d in target_dir.parent.iterdir() if d.is_dir() and "STM32CubeF4" in d.name]
+        dirs = [d for d in target_dir.parent.iterdir() if d.is_dir() and pkg in d.name]
         extracted = dirs[0] if dirs else None
     if extracted and extracted.exists() and extracted != target_dir:
         if target_dir.exists():
@@ -154,14 +178,17 @@ def download_cube(target_dir: Path, raise_on_fail: bool = True) -> Path:
         print(msg, file=sys.stderr)
         sys.exit(1)
 
-    log.info("STM32CubeF4 就绪: %s", target_dir)
+    log.info("%s 就绪: %s", pkg, target_dir)
     return target_dir
 
 
 if __name__ == "__main__":
+    import sys
+
     logging.basicConfig(level=logging.DEBUG, format="[%(name)s] %(levelname)s: %(message)s")
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd() / "cube" / "STM32CubeF4"
+    family = sys.argv[1] if len(sys.argv) > 1 else "F4"
+    out = Path.cwd() / "cube" / f"STM32Cube{family}"
     try:
-        download_cube(out, raise_on_fail=False)
+        download_cube(out, family=family, raise_on_fail=False)
     except RuntimeError:
         sys.exit(1)
