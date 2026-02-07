@@ -156,6 +156,13 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
         else:
             print(f"错误: {e}")
         return 1
+    except RuntimeError as e:
+        if "401" in str(e) or "OPENAI_API_BASE" in str(e):
+            print(f"生成失败: {e}")
+            print("\n提示: 使用 Kimi 时需在 .env 中设置 OPENAI_API_BASE=https://api.moonshot.cn/v1")
+        else:
+            print(f"生成失败: {e}")
+        return 1
     except Exception as e:
         print(f"生成失败: {e}")
         return 1

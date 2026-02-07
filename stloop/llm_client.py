@@ -5,9 +5,18 @@ from typing import Optional
 from .llm_config import get_llm_config
 
 try:
-    from openai import OpenAI
+    from openai import APIError, APIStatusError, OpenAI
 except ImportError:
     OpenAI = None
+    APIError = Exception
+    APIStatusError = Exception
+
+API_BASE_HINT = """
+若使用 Kimi/Moonshot，请在 .env 中添加：
+  OPENAI_API_BASE=https://api.moonshot.cn/v1
+  OPENAI_MODEL=kimi-k2-0905-preview
+获取 Key: https://platform.moonshot.cn/console/api-keys
+"""
 
 SYSTEM_PROMPT = """你是一名嵌入式工程师，专门使用 STM32 LL（Low-Level）库开发固件。
 用户会描述硬件需求（如 GPIO、LED、外设等），你需要生成对应的 C 代码。
@@ -45,14 +54,23 @@ def generate_main_c(
         client_kw["base_url"] = base_url.rstrip("/")
 
     client = OpenAI(**client_kw)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.2,
-    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+        )
+    except (APIStatusError, APIError) as e:
+        err_msg = str(e)
+        if "401" in err_msg or "invalid_api_key" in err_msg.lower():
+            if not base_url:
+                raise RuntimeError(
+                    f"API 认证失败（401）。当前未设置 OPENAI_API_BASE，请求发往 OpenAI。{API_BASE_HINT}"
+                ) from e
+        raise
     content = resp.choices[0].message.content or ""
     if "```c" in content:
         content = content.split("```c", 1)[1].split("```", 1)[0].strip()
