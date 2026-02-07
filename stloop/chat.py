@@ -18,8 +18,7 @@ PROMPT_SCHEMATIC = """
 > """
 
 PROMPT_DATASHEET = """
-请提供芯片手册路径（PDF），多个用逗号分隔。
-或输入 manuals 使用预存手册目录（{manuals_dir}），或 skip 使用默认 STM32F411RE：
+请提供芯片手册路径（PDF），多个用逗号分隔，或输入 skip 使用默认 STM32F411RE：
 > """
 
 PROMPT_FLASH = """
@@ -109,17 +108,10 @@ def _input_line(prompt: str) -> str:
 
 def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> int:
     """运行交互式会话"""
-    from . import _paths
-
-    projects_dir = _paths.get_projects_dir(client.work_dir)
-    manuals_dir = _paths.get_manuals_dir(client.work_dir)
-
     print("\n" + "=" * 50)
     print("  STLoop — STM32 自然语言端到端开发")
     print("=" * 50)
     print("  描述需求 → 提供原理图/手册（可选）→ 生成代码 → 编译 → 烧录")
-    print("  预存手册目录:", manuals_dir, "(可提前放入 PDF)")
-    print("  生成项目目录:", projects_dir, "(与 STloop 同级)")
     print("  输入 quit 或 exit 退出")
     print("=" * 50 + "\n")
 
@@ -145,44 +137,30 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
         else:
             print(f"  文件不存在，已跳过: {schematic_input}")
 
-    datasheet_input = _input_line(PROMPT_DATASHEET.format(manuals_dir=manuals_dir))
+    datasheet_input = _input_line(PROMPT_DATASHEET)
     if datasheet_input and datasheet_input.lower() not in ("skip", "s", ""):
-        if datasheet_input.strip().lower() == "manuals":
-            # 使用预存手册目录
-            if manuals_dir.exists():
-                for p in manuals_dir.glob("**/*.pdf"):
-                    datasheet_paths.append(p.resolve())
-                    print(f"  已使用预存手册: {p.name}")
-            else:
-                print(f"  预存手册目录不存在: {manuals_dir}，请先创建并放入 PDF")
-        else:
-            for raw in datasheet_input.replace(";", ",").split(","):
-                p = Path(raw.strip())
-                if p.exists():
-                    datasheet_paths.append(p.resolve())
-                    print(f"  已使用芯片手册: {p.resolve()}")
-                elif raw.strip():
-                    print(f"  文件不存在，已跳过: {raw.strip()}")
+        for raw in datasheet_input.replace(";", ",").split(","):
+            p = Path(raw.strip())
+            if p.exists():
+                datasheet_paths.append(p.resolve())
+                print(f"  已使用芯片手册: {p.resolve()}")
+            elif raw.strip():
+                print(f"  文件不存在，已跳过: {raw.strip()}")
 
-    # 推断芯片系列并确保对应 Cube 已下载
-    from .chip_family import infer_family
-
-    family = infer_family(prompt=requirement, datasheet_paths=datasheet_paths or None)
-    client.family = family
-    client.cube_path = _paths.get_cube_dir(family, client.work_dir)
-    print(f"\n检测到芯片系列: STM32{family}，检查编译依赖...")
+    # 生成工程前先确保 STM32Cube 依赖已下载
+    print("\n检查编译依赖...")
     log.info("cube_path: %s", client.cube_path)
     while True:
         try:
-            cube = client.ensure_cube(family=family)
-            log.info("STM32Cube%s 就绪: %s", family, cube)
+            cube = client.ensure_cube()
+            log.info("STM32Cube 就绪: %s", cube)
             break
         except RuntimeError as e:
             log.exception("依赖准备失败")
             print(f"\n依赖准备失败: {e}")
-            from .scripts.download_cube import get_fail_hint
+            from .scripts.download_cube import DOWNLOAD_FAIL_HINT
 
-            print(get_fail_hint(family))
+            print(DOWNLOAD_FAIL_HINT)
             retry = _input_line("是否重试? (y/n): ").strip().lower()
             if retry in ("y", "yes", "是"):
                 continue
@@ -190,7 +168,7 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
 
     full_prompt = _build_llm_prompt(requirement, schematic_path, datasheet_paths or None)
 
-    out = output_dir or projects_dir / "generated"
+    out = output_dir or client.work_dir / "output" / "generated"
     out.mkdir(parents=True, exist_ok=True)
 
     print("\n正在生成代码...")
@@ -214,7 +192,7 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
         print(f"生成失败: {e}")
         return 1
 
-    print(f"\n工程已生成: {out}")
+    print(f"工程已生成: {out}")
     print("正在编译...")
     log.info("编译工程: %s, cube: %s", out, client.cube_path)
     try:
@@ -236,16 +214,8 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
             print(f"烧录失败: {e}")
             return 1
     else:
-        print("未烧录。")
+        print("未烧录。可使用: python -m stloop build output/generated --flash")
 
-    # 明确告知用户使用方式
-    print("\n" + "─" * 50)
-    print("【使用方式】")
-    print(f"  项目路径: {out.resolve()}")
-    print(f"  进入项目: cd {out.resolve()}")
-    print("  编译:     cmake -B build -DCUBE_ROOT=<cube路径> . && cmake --build build")
-    print(f"  或使用:   python -m stloop build {out} --flash")
-    print("─" * 50 + "\n")
     return 0
 
 

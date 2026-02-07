@@ -22,7 +22,7 @@ class STLoopClient:
 
     示例:
         client = STLoopClient(work_dir=".")
-        client.ensure_cube(family="F4")
+        client.ensure_cube()
         elf = client.build("demos/blink")
         client.flash(elf)
     """
@@ -31,28 +31,22 @@ class STLoopClient:
         self,
         work_dir: Optional[Path] = None,
         cube_path: Optional[Path] = None,
-        family: str = "F4",
         target: str = "stm32f411re",
     ):
         self.work_dir = Path(work_dir or Path.cwd())
-        self.family = family.upper()
-        self.cube_path = Path(cube_path) if cube_path else _paths.get_cube_dir(self.family, self.work_dir)
+        self.cube_path = Path(cube_path) if cube_path else self.work_dir / "cube" / "STM32CubeF4"
         self.target = target
 
-    def ensure_cube(self, family: Optional[str] = None) -> Path:
-        """确保 STM32Cube{family} 存在，不存在则下载。失败时抛出 RuntimeError"""
-        fam = (family or self.family).upper()
-        cube_path = _paths.get_cube_dir(fam, self.work_dir)
-        log.debug("ensure_cube: %s", cube_path)
-        if (cube_path / "Drivers").exists():
-            log.info("STM32Cube%s 已存在", fam)
-            self.cube_path = cube_path
-            return cube_path
-        cube_path.parent.mkdir(parents=True, exist_ok=True)
+    def ensure_cube(self) -> Path:
+        """确保 STM32CubeF4 存在，不存在则下载。失败时抛出 RuntimeError"""
+        log.debug("ensure_cube: %s", self.cube_path)
+        if (self.cube_path / "Drivers").exists():
+            log.info("STM32CubeF4 已存在")
+            return self.cube_path
+        self.cube_path.parent.mkdir(parents=True, exist_ok=True)
         from .scripts.download_cube import download_cube
 
-        self.cube_path = download_cube(cube_path, family=fam, raise_on_fail=True)
-        return self.cube_path
+        return download_cube(self.cube_path, raise_on_fail=True)
 
     def _copy_template(self, dest: Path, skip_main_c: bool = False):
         """复制工程模板到目标目录"""
@@ -127,13 +121,6 @@ class STLoopClient:
         (out / "inc").mkdir(parents=True, exist_ok=True)
         (out / "src" / "main.c").write_text(main_c, encoding="utf-8")
         self._copy_template(out, skip_main_c=True)
-        # 创建用户项目 skill 目录与模板
-        skill_dir = out / ".cursor" / "skills" / "stloop-project"
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        _pkg = Path(__file__).resolve().parent
-        skill_tpl = _pkg / "templates" / "user_project_skill" / "SKILL.md"
-        if skill_tpl.exists():
-            (skill_dir / "SKILL.md").write_text(skill_tpl.read_text(encoding="utf-8"), encoding="utf-8")
         return out
 
     def demo_blink(

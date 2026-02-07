@@ -47,9 +47,8 @@ def main() -> int:
     p_gen.set_defaults(func=_cmd_gen)
 
     # cube-download
-    p_cube = sub.add_parser("cube-download", help="下载 STM32Cube（F1/F4/F7）")
-    p_cube.add_argument("-f", "--family", default="F4", help="芯片系列: F1/F4/F7")
-    p_cube.add_argument("-o", "--output", type=Path, help="输出目录，默认 workspace/cube/STM32Cube{family}")
+    p_cube = sub.add_parser("cube-download", help="下载 STM32CubeF4")
+    p_cube.add_argument("-o", "--output", type=Path, help="输出目录，默认 work-dir/cube/STM32CubeF4")
     p_cube.set_defaults(func=_cmd_cube_download)
 
     # build
@@ -98,20 +97,15 @@ def _cmd_gen(client: STLoopClient, args) -> int:
 def _cmd_cube_download(client: STLoopClient, args) -> int:
     import sys
 
-    from stloop import _paths
-    from stloop.scripts.download_cube import get_fail_hint
+    from stloop.scripts.download_cube import DOWNLOAD_FAIL_HINT
 
-    family = getattr(args, "family", "F4")
-    client.family = family.upper()
     if args.output:
         client.cube_path = args.output
-    else:
-        client.cube_path = _paths.get_cube_dir(family, client.work_dir)
     try:
-        client.ensure_cube(family=family)
+        client.ensure_cube()
     except RuntimeError as e:
         print(f"下载失败: {e}", file=sys.stderr)
-        print(get_fail_hint(client.family), file=sys.stderr)
+        print(DOWNLOAD_FAIL_HINT, file=sys.stderr)
         return 1
     return 0
 

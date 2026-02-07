@@ -28,13 +28,3 @@
 | 手动下载 | 可靠 | 需用户操作 |
 
 **建议**：保留 GitHub 自动下载，失败时提示手动方式并支持重试。
-
-### 2025-02-07 多系列 Cube、目录解耦、用户 Skill
-
-**改动**：
-1. **download_cube 按芯片系列**：支持 F1/F4/F7/H7/L4/G4，根据手册或自然语言推断
-2. **_paths 目录解耦**：workspace_root、projects_dir、manuals_dir、get_cube_dir(family)
-3. **生成项目与 STloop 同级**：输出到 workspace_root/generated
-4. **预存手册**：manuals_dir 可提前放入 PDF，chat 时输入 `manuals` 使用
-5. **生成后使用指引**：明确打印项目路径、cd、编译、烧录命令
-6. **用户项目 skill**：生成时自动创建 `.cursor/skills/stloop-project/SKILL.md`
