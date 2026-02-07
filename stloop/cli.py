@@ -1,11 +1,18 @@
 """STLoop CLI 入口"""
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from . import __version__
-from .client import STLoopClient
 from .chat import run_interactive
+from .client import STLoopClient
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[stloop] %(levelname)s: %(message)s",
+    stream=sys.stdout,
+)
 
 
 def main() -> int:
@@ -15,6 +22,7 @@ def main() -> int:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("-C", "--work-dir", type=Path, default=Path.cwd(), help="工作目录")
+    parser.add_argument("-v", "--verbose", action="store_true", help="输出 DEBUG 日志")
 
     sub = parser.add_subparsers(dest="cmd", required=False)
 
@@ -50,6 +58,8 @@ def main() -> int:
     p_build.set_defaults(func=_cmd_build)
 
     args = parser.parse_args()
+    if getattr(args, "verbose", False):
+        logging.getLogger("stloop").setLevel(logging.DEBUG)
     # 无子命令时进入交互式 chat
     if args.cmd is None:
         args.cmd = "chat"

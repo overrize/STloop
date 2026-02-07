@@ -2,6 +2,7 @@
 STLoopClient — 可编程 API
 支持 CLI 与 Python 脚本调用
 """
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional, Callable
@@ -9,8 +10,10 @@ from typing import Optional, Callable
 from . import _paths
 from .builder import build as _build
 from .flasher import flash as _flash
-from .tester import run_with_probe
 from .llm_client import generate_main_c
+from .tester import run_with_probe
+
+log = logging.getLogger("stloop")
 
 
 class STLoopClient:
@@ -36,7 +39,9 @@ class STLoopClient:
 
     def ensure_cube(self) -> Path:
         """确保 STM32CubeF4 存在，不存在则下载。返回 cube 根路径"""
+        log.debug("ensure_cube: %s", self.cube_path)
         if (self.cube_path / "Drivers").exists():
+            log.info("STM32CubeF4 已存在")
             return self.cube_path
         self.cube_path.parent.mkdir(parents=True, exist_ok=True)
         from .scripts.download_cube import download_cube
