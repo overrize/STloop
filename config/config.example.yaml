@@ -1,0 +1,30 @@
+# STLoop 配置文件
+# 复制为 config.yaml 并修改
+
+# 目标芯片
+target:
+  chip: STM32F411RE
+  board: Nucleo-F411RE
+
+# STM32Cube 软件包路径（需包含 Drivers/CMSIS, Drivers/STM32F4xx_HAL_Driver）
+# 留空则使用 scripts/download_cube.py 自动下载
+cube_path: ""
+# 示例: "C:/STM32Cube/Repository/STM32Cube_FW_F4_V1.27.1"
+
+# 工具链
+toolchain:
+  cmake: cmake
+  make: make
+  # Windows 可用: ninja
+  generator: "Unix Makefiles"
+
+# 大模型（用于代码生成）
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env: OPENAI_API_KEY
+
+# pyOCD
+pyocd:
+  frequency: 4000000
+  # 多探针时指定: "E6616407E3646B29"

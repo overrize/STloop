@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+
+# Build
+output/
+build/
+*.egg-info/
+*.elf
+*.bin
+*.hex
+*.map
+
+# STM32Cube（由脚本下载，不提交）
+cube/
+
+# Config（可能含 API Key）
+config/config.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
