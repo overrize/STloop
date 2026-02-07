@@ -8,8 +8,8 @@ set(CMAKE_SYSTEM_PROCESSOR arm)
 set(MCU_FAMILY STM32F4xx)
 set(MCU_DEVICE STM32F411xE)
 
-# STM32Cube 路径（由生成脚本注入）
-set(CUBE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/cube" CACHE PATH "STM32Cube root")
+# STM32Cube 路径（默认项目内嵌 cube，可自包含复制/二次开发）
+set(CUBE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/cube/STM32CubeF4" CACHE PATH "STM32Cube root")
 if(NOT EXISTS "${CUBE_ROOT}/Drivers")
   message(FATAL_ERROR "STM32Cube not found at ${CUBE_ROOT}. Run scripts/download_cube.py first.")
 endif()
@@ -45,12 +45,20 @@ set(INCLUDES
   ${CMAKE_CURRENT_SOURCE_DIR}/inc
 )
 
-# 源文件（system/startup 从 cube 引用）
+# 源文件（system/startup 从 cube 引用，兼容不同 Cube 版本路径）
 set(CMSIS_DEVICE ${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F4xx)
+set(SYSTEM_C_SRC ${CMSIS_DEVICE}/Source/Templates/system_stm32f4xx.c)
+if(NOT EXISTS "${SYSTEM_C_SRC}")
+  set(SYSTEM_C_SRC ${CMSIS_DEVICE}/Source/system_stm32f4xx.c)
+endif()
+set(STARTUP_GCC ${CMSIS_DEVICE}/Source/Templates/gcc)
+if(NOT EXISTS "${STARTUP_GCC}")
+  set(STARTUP_GCC ${CMSIS_DEVICE}/Source/gcc)
+endif()
 set(SOURCES
   src/main.c
-  ${CMSIS_DEVICE}/Source/Templates/system_stm32f4xx.c
-  ${CMSIS_DEVICE}/Source/Templates/gcc/startup_stm32f411xe.s
+  ${SYSTEM_C_SRC}
+  ${STARTUP_GCC}/startup_stm32f411xe.s
 )
 
 # LL 驱动（仅 GPIO 示例，可按需添加）
@@ -62,8 +70,9 @@ list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_sdmmc.*")
 
 add_executable(${PROJECT_NAME}.elf ${SOURCES} ${LL_SOURCES})
 target_include_directories(${PROJECT_NAME}.elf PRIVATE ${INCLUDES})
+set(LINKER_SCRIPT ${STARTUP_GCC}/linker/STM32F411RETx_FLASH.ld)
 target_link_options(${PROJECT_NAME}.elf PRIVATE
-  -T${CMSIS_DEVICE}/Source/Templates/gcc/linker/STM32F411RETx_FLASH.ld
+  -T${LINKER_SCRIPT}
   -Wl,-Map=${PROJECT_NAME}.map
 )
 

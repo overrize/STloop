@@ -60,6 +60,19 @@ class STLoopClient:
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, out)
 
+    def _embed_cube(self, project_dir: Path, cube_path: Path) -> Path:
+        """将 cube 库复制到项目内，使项目自包含、可独立复制/二次开发"""
+        dest = project_dir / "cube" / "STM32CubeF4"
+        if (dest / "Drivers").exists():
+            log.info("项目已内嵌 cube，跳过复制")
+            return dest
+        cube_path = Path(cube_path).resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        log.info("内嵌 cube: %s -> %s", cube_path, dest)
+        print("  [生成] 复制 cube 库到项目（使项目自包含）...")
+        shutil.copytree(cube_path, dest, dirs_exist_ok=True, symlinks=False)
+        return dest
+
     def build(
         self,
         project_dir: Path,
@@ -100,9 +113,10 @@ class STLoopClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        embed_cube: bool = True,
     ) -> Path:
         """
-        根据自然语言生成工程。
+        根据自然语言生成工程。embed_cube=True 时将 cube 复制到项目内，使项目自包含。
         返回输出目录路径。
         """
         out = self.work_dir / output_dir if not Path(output_dir).is_absolute() else Path(output_dir)
@@ -114,10 +128,15 @@ class STLoopClient:
             model=model,
             work_dir=self.work_dir,
         )
+        print("  [生成] 写入 main.c...")
         (out / "src").mkdir(parents=True, exist_ok=True)
         (out / "inc").mkdir(parents=True, exist_ok=True)
         (out / "src" / "main.c").write_text(main_c, encoding="utf-8")
+        print("  [生成] 复制工程模板...")
         self._copy_template(out, skip_main_c=True)
+        if embed_cube and self.cube_path and (self.cube_path / "Drivers").exists():
+            self._embed_cube(out, self.cube_path)
+        log.info("工程已生成: %s", out)
         return out
 
     def demo_blink(

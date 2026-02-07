@@ -41,7 +41,7 @@ def main() -> int:
     # gen
     p_gen = sub.add_parser("gen", help="根据自然语言生成工程")
     p_gen.add_argument("prompt", help="需求描述，如：PA5 控制 LED 闪烁")
-    p_gen.add_argument("-o", "--output", type=Path, default=Path("output/generated"), help="输出目录")
+    p_gen.add_argument("-o", "--output", type=Path, help="输出目录，默认 workspace/generated（与 STloop 同级）")
     p_gen.add_argument("--build", action="store_true", help="生成后编译")
     p_gen.add_argument("--flash", action="store_true", help="编译后烧录")
     p_gen.set_defaults(func=_cmd_gen)
@@ -82,11 +82,13 @@ def _cmd_demo(client: STLoopClient, args) -> int:
 
 
 def _cmd_gen(client: STLoopClient, args) -> int:
-    out = client.gen(args.prompt, args.output)
+    from . import _paths
+    output = args.output or _paths.get_projects_dir(client.work_dir) / "generated"
+    out = client.gen(args.prompt, output)
     print(f"工程已生成: {out}")
     if args.build:
         client.ensure_cube()
-        elf = client.build(out, cube_path=client.cube_path)
+        elf = client.build(out)
         print(f"编译完成: {elf}")
         if args.flash:
             client.flash(elf)
@@ -111,8 +113,15 @@ def _cmd_cube_download(client: STLoopClient, args) -> int:
 
 
 def _cmd_build(client: STLoopClient, args) -> int:
-    client.ensure_cube()
-    elf = client.build(args.project, cube_path=client.cube_path)
+    proj = args.project if Path(args.project).is_absolute() else client.work_dir / args.project
+    proj = Path(proj).resolve()
+    # 项目有内嵌 cube 则用项目的，否则用 ensure_cube 的
+    if (proj / "cube" / "STM32CubeF4" / "Drivers").exists():
+        cube_path = None
+    else:
+        client.ensure_cube()
+        cube_path = client.cube_path
+    elf = client.build(proj, cube_path=cube_path)
     print(f"编译完成: {elf}")
     if args.flash:
         client.flash(elf)

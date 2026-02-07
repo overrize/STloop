@@ -1,8 +1,11 @@
 """大模型接口 — 用于代码生成（支持 OpenAI、Kimi 等兼容 API）"""
+import logging
 from pathlib import Path
 from typing import Optional
 
 from .llm_config import get_llm_config
+
+log = logging.getLogger("stloop")
 
 try:
     from openai import APIError, APIStatusError, OpenAI
@@ -54,6 +57,9 @@ def generate_main_c(
         client_kw["base_url"] = base_url.rstrip("/")
 
     client = OpenAI(**client_kw)
+    log.info("模型: %s, base: %s", model, base_url or "default")
+    print(f"  [生成] 使用模型: {model}")
+    print("  [生成] 正在调用 API...")
     try:
         resp = client.chat.completions.create(
             model=model,
@@ -72,8 +78,13 @@ def generate_main_c(
                 ) from e
         raise
     content = resp.choices[0].message.content or ""
+    log.debug("原始响应长度: %d", len(content))
+    print(f"  [生成] 收到响应 ({len(content)} 字符)")
     if "```c" in content:
         content = content.split("```c", 1)[1].split("```", 1)[0].strip()
     elif "```" in content:
         content = content.split("```", 1)[1].split("```", 1)[0].strip()
+    log.info("解析后代码长度: %d", len(content))
+    lines = content.count("\n") + 1 if content else 0
+    print(f"  [生成] 解析代码块完成，输出 {lines} 行")
     return content

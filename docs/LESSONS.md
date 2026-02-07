@@ -28,3 +28,21 @@
 | 手动下载 | 可靠 | 需用户操作 |
 
 **建议**：保留 GitHub 自动下载，失败时提示手动方式并支持重试。
+
+### 2025-02-08 生成项目目录与自包含
+
+**问题**：
+- 生成项目在 STloop 工具内的 `output/generated`，与工具耦合
+- 项目引用外部 cube 路径，无法独立复制、上传 git、二次开发
+
+**需求**：功能与业务解耦；生成项目自包含 cube，便于用户复制/二次开发
+
+**改动**：
+1. **输出到 STloop 上一级**：`_paths.get_projects_dir()` 返回 workspace 根，生成 `{workspace}/generated`
+2. **项目内嵌 cube**：gen 时复制 cube 到 `project/cube/STM32CubeF4`，项目自包含
+3. **CMake 兼容**：支持 Cube 不同版本的 `system_stm32f4xx.c` 路径（Templates/ 或 Source/）
+4. **推广原则**：类似改动（目录解耦、自包含）应推广到其他功能，记录于 LESSONS 与 developer skill
+
+**类比检查（避免遗漏）**：
+- CLI gen：default 输出改为 `get_projects_dir()/generated`，build 时不传 cube_path（用项目内嵌）
+- CLI build：项目有内嵌 cube 则不传 cube_path，否则 ensure_cube 后用 client.cube_path

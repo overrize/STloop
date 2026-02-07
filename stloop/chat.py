@@ -108,10 +108,13 @@ def _input_line(prompt: str) -> str:
 
 def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> int:
     """运行交互式会话"""
+    from . import _paths
+    projects_dir = _paths.get_projects_dir(client.work_dir)
     print("\n" + "=" * 50)
     print("  STLoop — STM32 自然语言端到端开发")
     print("=" * 50)
     print("  描述需求 → 提供原理图/手册（可选）→ 生成代码 → 编译 → 烧录")
+    print("  生成项目目录（与 STloop 同级）:", projects_dir)
     print("  输入 quit 或 exit 退出")
     print("=" * 50 + "\n")
 
@@ -168,7 +171,7 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
 
     full_prompt = _build_llm_prompt(requirement, schematic_path, datasheet_paths or None)
 
-    out = output_dir or client.work_dir / "output" / "generated"
+    out = output_dir or projects_dir / "generated"
     out.mkdir(parents=True, exist_ok=True)
 
     print("\n正在生成代码...")
@@ -192,11 +195,11 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
         print(f"生成失败: {e}")
         return 1
 
-    print(f"工程已生成: {out}")
+    print(f"工程已生成: {out} （含内嵌 cube 库，可独立复制/二次开发）")
     print("正在编译...")
-    log.info("编译工程: %s, cube: %s", out, client.cube_path)
+    log.info("编译工程: %s (项目内嵌 cube)", out)
     try:
-        elf = client.build(out, cube_path=client.cube_path)
+        elf = client.build(out)
         print(f"编译完成: {elf}")
     except Exception as e:
         log.exception("编译失败")
@@ -214,7 +217,7 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
             print(f"烧录失败: {e}")
             return 1
     else:
-        print("未烧录。可使用: python -m stloop build output/generated --flash")
+        print(f"未烧录。可使用: python -m stloop build {out} --flash")
 
     return 0
 
