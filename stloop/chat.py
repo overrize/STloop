@@ -150,13 +150,21 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
     # 生成工程前先确保 STM32Cube 依赖已下载
     print("\n检查编译依赖...")
     log.info("cube_path: %s", client.cube_path)
-    try:
-        cube = client.ensure_cube()
-        log.info("STM32Cube 就绪: %s", cube)
-    except Exception as e:
-        log.exception("依赖准备失败")
-        print(f"依赖准备失败: {e}")
-        return 1
+    while True:
+        try:
+            cube = client.ensure_cube()
+            log.info("STM32Cube 就绪: %s", cube)
+            break
+        except RuntimeError as e:
+            log.exception("依赖准备失败")
+            print(f"\n依赖准备失败: {e}")
+            from .scripts.download_cube import DOWNLOAD_FAIL_HINT
+
+            print(DOWNLOAD_FAIL_HINT)
+            retry = _input_line("是否重试? (y/n): ").strip().lower()
+            if retry in ("y", "yes", "是"):
+                continue
+            return 1
 
     full_prompt = _build_llm_prompt(requirement, schematic_path, datasheet_paths or None)
 

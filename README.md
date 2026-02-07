@@ -95,6 +95,10 @@ client.flash(elf)
 
 默认支持 STM32F411RE（Nucleo-F411RE）。可扩展其他 F4 系列。
 
+## 开发经验
+
+改动与踩坑记录见 [docs/LESSONS.md](docs/LESSONS.md)。
+
 ## License
 
 MIT

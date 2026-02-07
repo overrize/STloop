@@ -95,9 +95,18 @@ def _cmd_gen(client: STLoopClient, args) -> int:
 
 
 def _cmd_cube_download(client: STLoopClient, args) -> int:
+    import sys
+
+    from stloop.scripts.download_cube import DOWNLOAD_FAIL_HINT
+
     if args.output:
         client.cube_path = args.output
-    client.ensure_cube()
+    try:
+        client.ensure_cube()
+    except RuntimeError as e:
+        print(f"下载失败: {e}", file=sys.stderr)
+        print(DOWNLOAD_FAIL_HINT, file=sys.stderr)
+        return 1
     return 0
 
 
