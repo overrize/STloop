@@ -46,3 +46,15 @@
 **类比检查（避免遗漏）**：
 - CLI gen：default 输出改为 `get_projects_dir()/generated`，build 时不传 cube_path（用项目内嵌）
 - CLI build：项目有内嵌 cube 则不传 cube_path，否则 ensure_cube 后用 client.cube_path
+
+### 2025-02-08 芯片动态配置
+
+**问题**：CMake 硬编码 STM32F411xE，用户手册为 F405 等时编译配置错误。目录查找应动态配置，按用户给的手册推断芯片。
+
+**改动**：
+- `chip_config.infer_chip(prompt, datasheet_paths)` 从手册文件名或自然语言推断芯片
+- gen 时写入 `chip_config.cmake`（MCU_DEVICE, STARTUP_PATTERN, LINKER_PATTERN）
+- CMake 动态按 pattern 在 cube 中查找 startup_*.s 和 *.ld
+- 支持 F401/F405/F407/F410/F411/F412/F413/F427/F429/F437/F439/F446/F469/F479
+
+**原则**：不以默认芯片为准，按用户手册/需求推断后动态配置。

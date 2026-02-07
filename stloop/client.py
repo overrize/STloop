@@ -114,13 +114,26 @@ class STLoopClient:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         embed_cube: bool = True,
+        datasheet_paths: Optional[list[Path | str]] = None,
     ) -> Path:
         """
         根据自然语言生成工程。embed_cube=True 时将 cube 复制到项目内，使项目自包含。
+        datasheet_paths 用于从手册文件名推断目标芯片，动态配置 startup/linker。
         返回输出目录路径。
         """
+        from .chip_config import infer_chip
+
         out = self.work_dir / output_dir if not Path(output_dir).is_absolute() else Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
+        mcu_device, startup_pat, linker_pat = infer_chip(prompt=prompt, datasheet_paths=datasheet_paths)
+        log.info("推断芯片: MCU_DEVICE=%s", mcu_device)
+        print(f"  [生成] 推断芯片: {mcu_device}")
+        (out / "chip_config.cmake").write_text(
+            f"set(MCU_DEVICE {mcu_device})\n"
+            f"set(STARTUP_PATTERN {startup_pat})\n"
+            f"set(LINKER_PATTERN {linker_pat})\n",
+            encoding="utf-8",
+        )
         main_c = generate_main_c(
             prompt,
             api_key=api_key,

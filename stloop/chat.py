@@ -176,7 +176,7 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
 
     print("\n正在生成代码...")
     try:
-        client.gen(full_prompt, out)
+        client.gen(full_prompt, out, datasheet_paths=datasheet_paths or None)
     except ValueError as e:
         if "OPENAI_API_KEY" in str(e) or "STLOOP_API_KEY" in str(e):
             print("错误: API Key 未正确加载。请确认 .env 或环境变量已配置。")

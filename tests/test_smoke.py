@@ -74,6 +74,15 @@ def test_chat_exits_when_not_configured(monkeypatch):
     assert run_interactive(client) == 1
 
 
+def test_chip_config_infer():
+    """从手册路径或自然语言推断芯片"""
+    from stloop.chip_config import infer_chip
+
+    assert infer_chip(prompt="STM32F405 IMU") == ("STM32F405xx", "f405", "F405")
+    assert infer_chip(datasheet_paths=["stm32f405rgt6.pdf"]) == ("STM32F405xx", "f405", "F405")
+    assert infer_chip(prompt="PA5 LED 闪烁") == ("STM32F411xE", "f411", "F411")
+
+
 def test_embed_cube_skips_when_already_embedded(tmp_path):
     """项目已有 cube 时，_embed_cube 跳过复制"""
     from stloop.client import STLoopClient
@@ -95,3 +104,25 @@ def test_gen_raises_without_api_key(monkeypatch, tmp_path):
     client = STLoopClient(work_dir=tmp_path)
     with pytest.raises(ValueError, match="OPENAI_API_KEY|STLOOP_API_KEY|配置"):
         client.gen("PA5 LED 闪烁", tmp_path / "test_gen")
+
+
+def test_gen_writes_chip_config(tmp_path, monkeypatch):
+    """测试 gen 根据 datasheet 写入 chip_config.cmake"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    from unittest.mock import patch
+
+    from stloop.client import STLoopClient
+
+    with patch("stloop.client.generate_main_c", return_value="int main() { return 0; }"):
+        client = STLoopClient(work_dir=tmp_path)
+        client.cube_path = tmp_path / "cube" / "STM32CubeF4"
+        (client.cube_path / "Drivers").mkdir(parents=True)
+        out = client.gen(
+            "STM32F405 IMU",
+            tmp_path / "proj",
+            datasheet_paths=[Path("stm32f405rgt6.pdf")],
+            embed_cube=False,
+        )
+    cfg = (out / "chip_config.cmake").read_text()
+    assert "STM32F405xx" in cfg
+    assert "f405" in cfg
