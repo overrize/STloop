@@ -18,11 +18,14 @@ toolchain:
   # Windows 可用: ninja
   generator: "Unix Makefiles"
 
-# 大模型（用于代码生成）
+# 大模型（用于代码生成，建议用 .env 配置 api_key）
+# Kimi K2 参考: https://platform.moonshot.cn/docs/guide/agent-support
 llm:
-  provider: openai
   model: gpt-4o-mini
-  api_key_env: OPENAI_API_KEY
+  # Kimi K2 示例:
+  # base_url: https://api.moonshot.cn/v1
+  # model: kimi-k2-0905-preview   # 256K 上下文
+  # model: kimi-k2-turbo-preview  # 高速版
 
 # pyOCD
 pyocd:

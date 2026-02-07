@@ -1,6 +1,8 @@
-"""大模型接口 — 用于代码生成"""
-import os
+"""大模型接口 — 用于代码生成（支持 OpenAI、Kimi 等兼容 API）"""
+from pathlib import Path
 from typing import Optional
+
+from .llm_config import get_llm_config
 
 try:
     from openai import OpenAI
@@ -19,16 +21,30 @@ SYSTEM_PROMPT = """你是一名嵌入式工程师，专门使用 STM32 LL（Low-
 """
 
 
-def generate_main_c(user_prompt: str, api_key: Optional[str] = None, model: str = "gpt-4o-mini") -> str:
-    """根据自然语言需求生成 main.c 内容"""
+def generate_main_c(
+    user_prompt: str,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    work_dir: Optional[Path] = None,
+) -> str:
+    """根据自然语言需求生成 main.c 内容。支持 OpenAI、Kimi(Moonshot) 等兼容 API"""
     if OpenAI is None:
         raise RuntimeError("请安装 openai: pip install openai")
 
-    api_key = api_key or os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("未设置 OPENAI_API_KEY")
+    cfg_key, cfg_base, cfg_model = get_llm_config(work_dir)
+    api_key = api_key or cfg_key
+    base_url = base_url or cfg_base
+    model = model or cfg_model
 
-    client = OpenAI(api_key=api_key)
+    if not api_key:
+        raise ValueError("未设置 OPENAI_API_KEY 或 STLOOP_API_KEY，请先配置。运行 python -m stloop 查看配置说明。")
+
+    client_kw = {"api_key": api_key}
+    if base_url:
+        client_kw["base_url"] = base_url.rstrip("/")
+
+    client = OpenAI(**client_kw)
     resp = client.chat.completions.create(
         model=model,
         messages=[

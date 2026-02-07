@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from .client import STLoopClient
+from .llm_config import is_llm_configured
 
 
 PROMPT_SCHEMATIC = """
@@ -23,6 +24,33 @@ PROMPT_FLASH = """
 PROMPT_REQUIREMENT = """
 请描述你的需求（自然语言），例如：PA5 控制 LED 闪烁，500ms 周期
 > """
+
+SETUP_INSTRUCTIONS = """
+┌─────────────────────────────────────────────────────────────────┐
+│  STLoop 需要配置大模型 API 才能生成代码                           │
+├─────────────────────────────────────────────────────────────────┤
+│  方式一：创建 .env 文件（推荐）                                   │
+│  复制 .env.example 为 .env，填入：                                │
+│                                                                  │
+│  # Kimi K2（参考 platform.moonshot.cn/docs/guide/agent-support）  │
+│  OPENAI_API_KEY=sk-xxx                                           │
+│  OPENAI_API_BASE=https://api.moonshot.cn/v1                      │
+│  OPENAI_MODEL=kimi-k2-0905-preview   # 或 kimi-k2-turbo-preview  │
+│                                                                  │
+│  # OpenAI                                                         │
+│  OPENAI_API_KEY=sk-xxx                                           │
+├─────────────────────────────────────────────────────────────────┤
+│  方式二：设置环境变量                                             │
+│  PowerShell: $env:OPENAI_API_KEY="sk-xxx"                        │
+│  Linux/Mac: export OPENAI_API_KEY=sk-xxx                         │
+├─────────────────────────────────────────────────────────────────┤
+│  获取 API Key：                                                  │
+│  • Kimi:   https://platform.moonshot.cn/console/api-keys         │
+│  • OpenAI: https://platform.openai.com/api-keys                  │
+└─────────────────────────────────────────────────────────────────┘
+
+配置完成后重新运行: python -m stloop
+"""
 
 
 def _extract_pdf_text(path: Path, max_chars: int = 15000) -> Optional[str]:
@@ -82,6 +110,11 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
     print("  输入 quit 或 exit 退出")
     print("=" * 50 + "\n")
 
+    # 初始化时检查 LLM 配置
+    if not is_llm_configured(client.work_dir):
+        print(SETUP_INSTRUCTIONS)
+        return 1
+
     requirement = _input_line(PROMPT_REQUIREMENT)
     if not requirement or requirement.lower() in ("quit", "exit", "q"):
         print("已退出。")
@@ -117,8 +150,9 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
     try:
         client.gen(full_prompt, out)
     except ValueError as e:
-        if "OPENAI_API_KEY" in str(e):
-            print("错误: 未设置 OPENAI_API_KEY。请设置环境变量或使用 .env 文件。")
+        if "OPENAI_API_KEY" in str(e) or "STLOOP_API_KEY" in str(e):
+            print("错误: API Key 未正确加载。请确认 .env 或环境变量已配置。")
+            print(SETUP_INSTRUCTIONS)
         else:
             print(f"错误: {e}")
         return 1
@@ -145,7 +179,7 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
             print(f"烧录失败: {e}")
             return 1
     else:
-        print("未烧录。可使用: stloop build output/generated --flash")
+        print("未烧录。可使用: python -m stloop build output/generated --flash")
 
     return 0
 

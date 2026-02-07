@@ -35,6 +35,22 @@ python -m stloop demo blink --flash
 
 > **说明**：若直接输入 `stloop` 提示找不到命令，请使用 `python -m stloop`。Windows 下 Scripts 目录可能不在 PATH 中。
 
+## 大模型配置（chat / gen 需要）
+
+交互式生成代码前需配置 API。复制 `.env.example` 为 `.env` 并填入。
+
+**Kimi K2**（推荐，见 [官方文档](https://platform.moonshot.cn/docs/guide/agent-support)）：
+
+```bash
+OPENAI_API_KEY=sk-xxx
+OPENAI_API_BASE=https://api.moonshot.cn/v1
+OPENAI_MODEL=kimi-k2-0905-preview   # 或 kimi-k2-turbo-preview
+```
+
+**OpenAI**：`OPENAI_API_KEY=sk-xxx` 即可。
+
+支持任意兼容 OpenAI 格式的 API。未配置时运行 `python -m stloop` 会显示完整配置说明。
+
 ## 项目结构
 
 ```

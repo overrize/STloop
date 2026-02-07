@@ -27,7 +27,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Ruff check
-        run: ruff check stloop/ --output-format=github
+        run: ruff check stloop/ tests/ --output-format=github
 
       - name: Pytest
         run: pytest tests/ -v

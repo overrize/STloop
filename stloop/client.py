@@ -95,6 +95,8 @@ class STLoopClient:
         prompt: str,
         output_dir: Path,
         api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Path:
         """
         根据自然语言生成工程。
@@ -102,7 +104,13 @@ class STLoopClient:
         """
         out = self.work_dir / output_dir if not Path(output_dir).is_absolute() else Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        main_c = generate_main_c(prompt, api_key=api_key)
+        main_c = generate_main_c(
+            prompt,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            work_dir=self.work_dir,
+        )
         (out / "src").mkdir(parents=True, exist_ok=True)
         (out / "inc").mkdir(parents=True, exist_ok=True)
         (out / "src" / "main.c").write_text(main_c, encoding="utf-8")
