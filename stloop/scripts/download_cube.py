@@ -51,14 +51,26 @@ def _do_download(zip_path: Path) -> None:
 def _find_existing_cube(target_dir: Path) -> Path | None:
     """下载前确认：若 cube 文件夹已有芯片库（含 Drivers），返回路径，否则 None"""
     target_dir = Path(target_dir).resolve()
-    if (target_dir / "Drivers").exists():
-        return target_dir
-    cube_dir = target_dir.parent
-    if cube_dir.exists():
+
+    def _scan(cube_dir: Path) -> Path | None:
+        if not cube_dir.exists():
+            return None
+        if (cube_dir / "STM32CubeF4" / "Drivers").exists():
+            return cube_dir / "STM32CubeF4"
         for d in cube_dir.iterdir():
             if d.is_dir() and "STM32CubeF4" in d.name and (d / "Drivers").exists():
                 return d
-    return None
+        return None
+
+    if (target_dir / "Drivers").exists():
+        return target_dir
+    # 1) work_dir/cube
+    found = _scan(target_dir.parent)
+    if found:
+        return found
+    # 2) work_dir 上一级的 cube（STloop 与 cube 同级时，如 STLOOP_TEST/cube 与 STLOOP_TEST/STloop）
+    parent_cube = target_dir.parent.parent.parent / "cube"
+    return _scan(parent_cube)
 
 
 def download_cube(target_dir: Path, raise_on_fail: bool = True) -> Path:
