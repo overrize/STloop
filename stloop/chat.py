@@ -2,7 +2,6 @@
 STLoop 交互式终端 — 自然语言端到端流程
 用户输入需求 → 询问原理图/芯片手册 → 生成 → 编译 → 烧录
 """
-import os
 import sys
 from pathlib import Path
 from typing import Optional
