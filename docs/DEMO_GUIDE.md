@@ -29,8 +29,8 @@ pip install -r requirements.txt
 ### 仅编译
 
 ```bash
-stloop demo blink
-# 或
+python -m stloop demo blink
+# 或（在项目目录下）
 python main.py demo blink
 ```
 
@@ -39,7 +39,7 @@ python main.py demo blink
 ### 编译 + 烧录
 
 ```bash
-stloop demo blink --flash
+python -m stloop demo blink --flash
 ```
 
 连接 Nucleo-F411RE，板载 LED（PA5）应开始闪烁。
@@ -47,7 +47,7 @@ stloop demo blink --flash
 ### 编译 + 烧录 + 自动化测试
 
 ```bash
-stloop demo blink --flash --test
+python -m stloop demo blink --flash --test
 ```
 
 ## 三、自然语言生成工程
@@ -65,7 +65,7 @@ echo OPENAI_API_KEY=sk-xxx > .env
 生成并编译、烧录：
 
 ```bash
-stloop gen "PA5 控制 LED 闪烁" -o output/led --build --flash
+python -m stloop gen "PA5 控制 LED 闪烁" -o output/led --build --flash
 ```
 
 ## 四、配置说明

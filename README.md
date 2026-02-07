@@ -16,7 +16,7 @@
 - [arm-none-eabi-gcc](https://developer.arm.com/downloads/-/gnu-rm)
 - [CMake](https://cmake.org/) 3.15+
 - [pyOCD](https://pyocd.io/) + ST-Link 调试器
-- STM32CubeF4 软件包（或通过 `stloop cube-download` 自动下载）
+- STM32CubeF4 软件包（或通过 `python -m stloop cube-download` 自动下载）
 
 ## 快速开始
 
@@ -27,16 +27,13 @@ pip install -e .
 # 可选：支持原理图/芯片手册 PDF 解析
 pip install -e ".[pdf]"
 
-# 2. 交互式终端（默认）
-stloop
-# 或
-stloop chat
-
-# 按提示输入需求、原理图路径、芯片手册路径，自动生成→编译→烧录
-
-# 3. 或直接运行 Demo
-stloop demo blink --flash
+# 2. 运行（推荐使用 python -m，避免 PATH 问题）
+python -m stloop              # 交互式终端
+python -m stloop demo blink   # Demo
+python -m stloop demo blink --flash
 ```
+
+> **说明**：若直接输入 `stloop` 提示找不到命令，请使用 `python -m stloop`。Windows 下 Scripts 目录可能不在 PATH 中。
 
 ## 项目结构
 
