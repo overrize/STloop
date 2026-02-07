@@ -40,13 +40,10 @@ class STLoopClient:
     def ensure_cube(self) -> Path:
         """确保 STM32CubeF4 存在，不存在则下载。失败时抛出 RuntimeError"""
         log.debug("ensure_cube: %s", self.cube_path)
-        if (self.cube_path / "Drivers").exists():
-            log.info("STM32CubeF4 已存在")
-            return self.cube_path
-        self.cube_path.parent.mkdir(parents=True, exist_ok=True)
         from .scripts.download_cube import download_cube
 
-        return download_cube(self.cube_path, raise_on_fail=True)
+        self.cube_path = download_cube(self.cube_path, raise_on_fail=True)
+        return self.cube_path
 
     def _copy_template(self, dest: Path, skip_main_c: bool = False):
         """复制工程模板到目标目录"""
