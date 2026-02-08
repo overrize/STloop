@@ -10,6 +10,7 @@ from typing import Optional, Callable
 from . import _paths
 from .builder import build as _build
 from .flasher import flash as _flash
+from .linker_gen import generate_linker_script
 from .llm_client import generate_main_c
 from .tester import run_with_probe
 
@@ -111,7 +112,12 @@ class STLoopClient:
                 log.info("复制 linker: %s -> %s", ld_file, dest_ld)
                 print(f"  [生成] 复制链接脚本: {ld_file.name} -> 工程目录")
         else:
-            log.warning("cube 中未找到匹配 *%s*FLASH*.ld（已查 Projects/Drivers）", linker_pat)
+            log.warning("cube 中未找到匹配 *%s*FLASH*.ld，尝试生成", linker_pat)
+            gen_ld = generate_linker_script(project_dir, linker_pat)
+            if gen_ld:
+                print(f"  [生成] 生成链接脚本: {gen_ld.name} -> 工程目录")
+            else:
+                log.warning("linker 生成失败，芯片 %s 可能不在支持列表", linker_pat)
 
         # 在 cube 中找匹配的 startup_*.s（CMSIS Device）
         cmsis_device = cube_root / "Drivers" / "CMSIS" / "Device" / "ST" / "STM32F4xx"

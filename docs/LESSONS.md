@@ -88,3 +88,12 @@
 - 新增 `_has_linker_or_startup()`：检查 cube 是否含 .ld 或 startup_*.s
 - 跳过条件收紧：仅在「有 Drivers 且含 linker/startup」时跳过
 - 若内嵌 cube 不完整：优先从源补充 `Projects` 目录；若源无 Projects 则全量重新复制
+
+### 2025-02-07 linker 脚本生成器
+
+**问题**：cube 的 Projects 可能不含某型号的 .ld（如 F405），导致编译失败。
+
+**改动**：
+- 新增 `stloop/linker_gen.py`：芯片内存表 + 模板生成 linker 脚本
+- 当 cube 中找不到匹配的 .ld 时，自动生成到工程目录
+- 支持 F401/F405/F407/F410/F411/F412/F413/F427/F429/F437/F439/F446/F469/F479
