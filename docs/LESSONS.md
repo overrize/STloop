@@ -115,3 +115,23 @@
 - `llm_client.generate_main_c_fix(original_prompt, current_code, build_error)`：根据编译错误请求 LLM 修正代码
 - chat 交互流程、CLI `gen --build`：编译失败时自动进入修复循环（最多 3 轮）
 - 每轮：捕获错误 → 调用 fix → 更新 main.c → 重新编译
+
+---
+
+## 编译问题总结（startup + HAL）
+
+**主要问题**：startup 文件是 Keil 格式，与 GNU 工具链不兼容  
+- cube 的 `arm/` 为 ARM/Keil 汇编，`gcc/` 为 GNU 汇编  
+- 解决：优先使用 gcc/ 下的 startup，工具链仅用 arm-none-eabi-gcc
+
+**次要问题**：缺少 HAL 配置文件，导致部分 LL 驱动编译失败  
+- 部分 LL 源文件会 include `stm32f4xx_hal_conf.h`  
+- 解决：模板已添加 `inc/stm32f4xx_hal_conf.h`（HAL 模块全部禁用），或调整 CMakeLists 排除依赖 HAL 的 LL 源
+
+### 2025-02-07 工程创建逻辑与 CubeMX 一致
+
+**原则**：不覆盖用户文件，lib 需更新。
+
+**改动**：
+- **模板**：仅复制不存在的文件，已存在则不覆盖（CMakeLists、hal_conf、main.h 等用户可能修改的）
+- **cube (lib)**：每次 gen 都更新，`shutil.copytree(..., dirs_exist_ok=True)` 覆盖，确保驱动为最新

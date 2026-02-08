@@ -47,7 +47,7 @@ class STLoopClient:
         return self.cube_path
 
     def _copy_template(self, dest: Path, skip_main_c: bool = False):
-        """复制工程模板到目标目录"""
+        """复制工程模板到目标目录。与 CubeMX 一致：不覆盖已存在的用户文件，仅补齐缺失项。"""
         tpl = _paths.get_templates_dir() / "stm32_ll"
         if not tpl.exists():
             tpl = self.work_dir / "templates" / "stm32_ll"
@@ -58,26 +58,21 @@ class STLoopClient:
             out = dest / rel
             if skip_main_c and "src" in rel.parts and rel.name == "main.c":
                 continue
+            if out.exists():
+                log.debug("保留已有文件: %s", out)
+                continue
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, out)
+            log.info("补齐模板: %s", rel)
 
     def _embed_cube(self, project_dir: Path, cube_path: Path) -> Path:
-        """将 cube 库复制到项目内，使项目自包含。仅按 Drivers 判断是否跳过，与 linker/startup 无关。"""
+        """将 cube 库复制到项目内，使项目自包含。与 CubeMX 一致：lib 每次更新，确保使用最新驱动。"""
         dest = project_dir / "cube" / "STM32CubeF4"
         cube_path = Path(cube_path).resolve()
         log.info("_embed_cube: 源=%s, 目标=%s", cube_path, dest)
 
-        if (dest / "Drivers").exists():
-            log.info("项目已内嵌 cube（存在 Drivers），跳过复制 lib")
-            if not (dest / "Projects").exists() and (cube_path / "Projects").exists():
-                log.info("内嵌 cube 无 Projects，从源补充 Projects（供后续复制 .ld 用）")
-                print("  [生成] 补充 cube/Projects...")
-                shutil.copytree(cube_path / "Projects", dest / "Projects", dirs_exist_ok=True)
-            return dest
-
         dest.parent.mkdir(parents=True, exist_ok=True)
-        log.info("内嵌 cube: 全量复制 %s -> %s", cube_path, dest)
-        print("  [生成] 复制 cube 库到项目（使项目自包含）...")
+        print("  [生成] 更新 cube 库到项目（lib 保持最新）...")
         shutil.copytree(cube_path, dest, dirs_exist_ok=True, symlinks=False)
         return dest
 
@@ -226,11 +221,11 @@ class STLoopClient:
         (out / "inc").mkdir(parents=True, exist_ok=True)
         (out / "src" / "main.c").write_text(main_c, encoding="utf-8")
         print("  [生成] 复制工程模板...")
-        self._copy_template(out, skip_main_c=True)
         cube_dest = None
         if embed_cube and self.cube_path and (self.cube_path / "Drivers").exists():
-            log.info("gen: 内嵌 cube，源=%s", self.cube_path)
             cube_dest = self._embed_cube(out, self.cube_path)
+        self._copy_template(out, skip_main_c=True)
+        if cube_dest is not None:
             log.info("cube 内嵌结果: %s", cube_dest)
         # linker/startup 与 lib 判断分离：放到工程目录（与 src 同级），便于编译
         if cube_dest is not None:
