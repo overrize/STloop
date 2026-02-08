@@ -64,3 +64,16 @@
 **问题**：chat 调用 build(out) 时，client 传 self.cube_path（外部）覆盖了项目内嵌 cube。
 
 **改动**：client.build 检测项目有 `cube/STM32CubeF4/Drivers` 时，传 cube_path=None 让 builder 用项目内嵌。
+
+### 2025-02-07 linker 脚本 (.ld) 来源
+
+**问题**：`No linker script .ld found under .../cube/STM32CubeF4/Drivers`，CMake 在 Drivers 下找不到 `.ld`。
+
+**分析**：
+- **cmsis_device_f4 不包含 GCC linker 脚本**：ST 在 [issue #10](https://github.com/STMicroelectronics/cmsis_device_f4/issues/10) 明确说明，F4 等 legacy 系列由 CubeIDE/CubeMX 生成，不再在 CMSIS 仓库提供
+- **linker 脚本实际位置**：完整 STM32CubeF4 的 `Projects/[Board]/Examples|Applications/.../[IDE]/.../[MCU]_FLASH.ld`，例如 `Projects/STM32F411RE-Nucleo/Examples/Blink/SW4STM32/STM32F411RETx_FLASH.ld`
+- **Drivers 目录本身不含 .ld**：仅含 HAL/CMSIS 源码，不包含各芯片的链接脚本
+
+**改动**：
+- CMake 在 CMSIS_DEVICE、Drivers 未找到后，回退到 `Projects/**/*.ld` 查找
+- 完整 cube（含 Projects）下载后即可正常编译
