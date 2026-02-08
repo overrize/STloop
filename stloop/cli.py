@@ -138,8 +138,8 @@ def _cmd_check(client: STLoopClient, args) -> int:
     try:
         ensure_toolchain()
         print("arm-none-eabi-gcc: 已就绪")
-    except RuntimeError as e:
-        print(f"arm-none-eabi-gcc: 未找到")
+    except RuntimeError:
+        print("arm-none-eabi-gcc: 未找到")
         print(f"  {TOOLCHAIN_HINT}")
         return 1
     try:

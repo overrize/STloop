@@ -155,7 +155,7 @@ def generate_linker_script(
     if ccm_k > 0:
         ccm_line = f"  CCMRAM (rw) : ORIGIN = 0x10000000, LENGTH = {ccm_k}K"
         ccm_suffix = f", ccm={ccm_k}K"
-        ccm_section = f'''
+        ccm_section = '''
   _siccmram = LOADADDR(.ccmram);
   .ccmram :
   {{

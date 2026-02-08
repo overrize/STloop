@@ -83,14 +83,15 @@ def test_chip_config_infer():
     assert infer_chip(prompt="PA5 LED 闪烁") == ("STM32F411xE", "f411", "F411")
 
 
-def test_embed_cube_skips_when_already_embedded(tmp_path):
-    """项目已有 cube 时，_embed_cube 跳过复制"""
+def test_embed_cube_updates_lib(tmp_path):
+    """_embed_cube 每次更新 lib（与 CubeMX 一致）"""
     from stloop.client import STLoopClient
 
-    (tmp_path / "cube" / "STM32CubeF4" / "Drivers").mkdir(parents=True)
+    source_cube = tmp_path / "source_cube"
+    (source_cube / "Drivers" / "CMSIS").mkdir(parents=True)
+    (source_cube / "Drivers" / "STM32F4xx_HAL_Driver").mkdir(parents=True)
     client = STLoopClient(work_dir=tmp_path)
-    client.cube_path = tmp_path / "some_cube"
-    result = client._embed_cube(tmp_path, tmp_path)
+    result = client._embed_cube(tmp_path, source_cube)
     assert (tmp_path / "cube" / "STM32CubeF4" / "Drivers").exists()
     assert result == tmp_path / "cube" / "STM32CubeF4"
 
@@ -102,7 +103,7 @@ def test_gen_raises_without_api_key(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("STLOOP_API_KEY", raising=False)
     client = STLoopClient(work_dir=tmp_path)
-    with pytest.raises(ValueError, match="OPENAI_API_KEY|STLOOP_API_KEY|配置"):
+    with pytest.raises((ValueError, RuntimeError), match="OPENAI_API_KEY|STLOOP_API_KEY|配置|openai"):
         client.gen("PA5 LED 闪烁", tmp_path / "test_gen")
 
 

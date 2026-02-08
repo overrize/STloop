@@ -9,6 +9,7 @@
 | **test-driven-development** | 实现功能/修 bug 前先写失败测试，RED-GREEN-REFACTOR |
 | **systematic-debugging** | 排查 bug 时先找根因再修，四阶段流程 |
 | **brainstorming** | 做功能前先澄清需求，产出设计再实现 |
+| **stm32-startup-linker** | 处理 STM32 启动文件与链接脚本，GCC 工具链与 gcc/ 模板匹配 |
 
 ## 安装
 
@@ -29,4 +30,4 @@ Copy-Item -Recurse docs\skills\* $env:USERPROFILE\.cursor\skills\
 
 ## 使用
 
-安装后，在对话中用 `@test-driven-development`、`@systematic-debugging` 或 `@brainstorming` 引用，或在相关场景下由 AI 自动应用。
+安装后，在对话中用 `@test-driven-development`、`@systematic-debugging`、`@brainstorming` 或 `@stm32-startup-linker` 引用，或在相关场景下由 AI 自动应用。

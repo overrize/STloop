@@ -135,3 +135,14 @@
 **改动**：
 - **模板**：仅复制不存在的文件，已存在则不覆盖（CMakeLists、hal_conf、main.h 等用户可能修改的）
 - **cube (lib)**：每次 gen 都更新，`shutil.copytree(..., dirs_exist_ok=True)` 覆盖，确保驱动为最新
+
+### 2025-02-07 CI 修复与 stm32-startup-linker skill
+
+**CI 问题**：ruff 报错（未使用变量、多余 f-string）、测试 `test_embed_cube_skips` 与新逻辑（lib 每次更新）不符、`test_gen_raises_without_api_key` 偶发 RuntimeError。
+
+**改动**：
+- ruff：`except RuntimeError as e` → `except RuntimeError`，移除多余 f 前缀
+- 测试：`test_embed_cube_skips_when_already_embedded` → `test_embed_cube_updates_lib`，使用独立 source_cube 目录
+- 测试：`test_gen_raises_without_api_key` 接受 `(ValueError, RuntimeError)`
+
+**skill**：新增 `docs/skills/stm32-startup-linker/`，参考 CubeMX 链接脚本与启动文件机制，用于适配 gcc/ 模板、符号耦合、常见问题排查。
