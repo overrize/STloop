@@ -82,10 +82,17 @@ class STLoopClient:
         """
         编译 STM32 工程。
         project_dir: 工程目录（含 CMakeLists.txt）
+        cube_path: 显式指定时使用；否则项目有内嵌 cube 则用项目的，否则用 ensure_cube 的
         返回 .elf 路径
         """
-        proj = self.work_dir / project_dir if not Path(project_dir).is_absolute() else Path(project_dir)
-        cube = cube_path or self.cube_path
+        proj = Path(project_dir) if Path(project_dir).is_absolute() else self.work_dir / project_dir
+        proj = proj.resolve()
+        if cube_path is not None:
+            cube = cube_path
+        elif (proj / "cube" / "STM32CubeF4" / "Drivers").exists():
+            cube = None
+        else:
+            cube = self.cube_path
         return _build(proj, build_dir=build_dir, cube_path=cube)
 
     def flash(

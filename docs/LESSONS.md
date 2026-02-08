@@ -58,3 +58,9 @@
 - 支持 F401/F405/F407/F410/F411/F412/F413/F427/F429/F437/F439/F446/F469/F479
 
 **原则**：不以默认芯片为准，按用户手册/需求推断后动态配置。
+
+### 2025-02-08 build 优先使用项目内嵌 cube
+
+**问题**：chat 调用 build(out) 时，client 传 self.cube_path（外部）覆盖了项目内嵌 cube。
+
+**改动**：client.build 检测项目有 `cube/STM32CubeF4/Drivers` 时，传 cube_path=None 让 builder 用项目内嵌。
