@@ -77,3 +77,14 @@
 **改动**：
 - CMake 在 CMSIS_DEVICE、Drivers 未找到后，回退到 `Projects/**/*.ld` 查找
 - 完整 cube（含 Projects）下载后即可正常编译
+
+### 2025-02-07 内嵌 cube 跳过逻辑导致 linker 缺失
+
+**问题**：`_embed_cube` 仅检查 `(dest / "Drivers").exists()` 即跳过复制。若首次内嵌的 cube 不完整（如源仅有 Drivers、无 Projects），后续 gen 会一直跳过，导致项目内嵌 cube 缺 .ld，编译失败。
+
+**根因**：linker 脚本在 Projects 示例中，Drivers 目录本身不含 .ld。仅复制了 Drivers 的 cube 被视为「已内嵌」并跳过，无法自动修复。
+
+**改动**：
+- 新增 `_has_linker_or_startup()`：检查 cube 是否含 .ld 或 startup_*.s
+- 跳过条件收紧：仅在「有 Drivers 且含 linker/startup」时跳过
+- 若内嵌 cube 不完整：优先从源补充 `Projects` 目录；若源无 Projects 则全量重新复制

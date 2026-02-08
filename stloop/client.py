@@ -60,13 +60,36 @@ class STLoopClient:
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, out)
 
+    def _has_linker_or_startup(self, cube_root: Path) -> bool:
+        """检查 cube 是否包含 .ld 或 startup_*.s（可正常编译所需）"""
+        for sub in ("Drivers", "Projects"):
+            if not (cube_root / sub).exists():
+                continue
+            for p in (cube_root / sub).rglob("*"):
+                if p.suffix == ".ld" or (p.name.startswith("startup_") and p.suffix == ".s"):
+                    return True
+        return False
+
     def _embed_cube(self, project_dir: Path, cube_path: Path) -> Path:
         """将 cube 库复制到项目内，使项目自包含、可独立复制/二次开发"""
         dest = project_dir / "cube" / "STM32CubeF4"
-        if (dest / "Drivers").exists():
-            log.info("项目已内嵌 cube，跳过复制")
-            return dest
         cube_path = Path(cube_path).resolve()
+
+        if (dest / "Drivers").exists():
+            if self._has_linker_or_startup(dest):
+                log.info("项目已内嵌 cube（含 linker/startup），跳过复制")
+                return dest
+            # 内嵌 cube 不完整（缺 .ld 或 startup），尝试从源补充 Projects
+            if (cube_path / "Projects").exists() and not self._has_linker_or_startup(dest):
+                log.info("项目内嵌 cube 缺少 linker 脚本，从源补充 Projects")
+                print("  [生成] 补充 cube/Projects（linker 脚本来源）...")
+                shutil.copytree(cube_path / "Projects", dest / "Projects", dirs_exist_ok=True)
+                return dest
+            # 源也无 Projects，全量重新复制（可能源已更新为完整版）
+            log.info("项目内嵌 cube 不完整，重新复制")
+            if dest.exists():
+                shutil.rmtree(dest)
+
         dest.parent.mkdir(parents=True, exist_ok=True)
         log.info("内嵌 cube: %s -> %s", cube_path, dest)
         print("  [生成] 复制 cube 库到项目（使项目自包含）...")
