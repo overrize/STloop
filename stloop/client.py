@@ -60,41 +60,79 @@ class STLoopClient:
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, out)
 
-    def _has_linker_or_startup(self, cube_root: Path) -> bool:
-        """检查 cube 是否包含 .ld 或 startup_*.s（可正常编译所需）"""
-        for sub in ("Drivers", "Projects"):
-            if not (cube_root / sub).exists():
-                continue
-            for p in (cube_root / sub).rglob("*"):
-                if p.suffix == ".ld" or (p.name.startswith("startup_") and p.suffix == ".s"):
-                    return True
-        return False
-
     def _embed_cube(self, project_dir: Path, cube_path: Path) -> Path:
-        """将 cube 库复制到项目内，使项目自包含、可独立复制/二次开发"""
+        """将 cube 库复制到项目内，使项目自包含。仅按 Drivers 判断是否跳过，与 linker/startup 无关。"""
         dest = project_dir / "cube" / "STM32CubeF4"
         cube_path = Path(cube_path).resolve()
+        log.info("_embed_cube: 源=%s, 目标=%s", cube_path, dest)
 
         if (dest / "Drivers").exists():
-            if self._has_linker_or_startup(dest):
-                log.info("项目已内嵌 cube（含 linker/startup），跳过复制")
-                return dest
-            # 内嵌 cube 不完整（缺 .ld 或 startup），尝试从源补充 Projects
-            if (cube_path / "Projects").exists() and not self._has_linker_or_startup(dest):
-                log.info("项目内嵌 cube 缺少 linker 脚本，从源补充 Projects")
-                print("  [生成] 补充 cube/Projects（linker 脚本来源）...")
+            log.info("项目已内嵌 cube（存在 Drivers），跳过复制 lib")
+            if not (dest / "Projects").exists() and (cube_path / "Projects").exists():
+                log.info("内嵌 cube 无 Projects，从源补充 Projects（供后续复制 .ld 用）")
+                print("  [生成] 补充 cube/Projects...")
                 shutil.copytree(cube_path / "Projects", dest / "Projects", dirs_exist_ok=True)
-                return dest
-            # 源也无 Projects，全量重新复制（可能源已更新为完整版）
-            log.info("项目内嵌 cube 不完整，重新复制")
-            if dest.exists():
-                shutil.rmtree(dest)
+            return dest
 
         dest.parent.mkdir(parents=True, exist_ok=True)
-        log.info("内嵌 cube: %s -> %s", cube_path, dest)
+        log.info("内嵌 cube: 全量复制 %s -> %s", cube_path, dest)
         print("  [生成] 复制 cube 库到项目（使项目自包含）...")
         shutil.copytree(cube_path, dest, dirs_exist_ok=True, symlinks=False)
         return dest
+
+    def _ensure_linker_startup_in_project(
+        self,
+        project_dir: Path,
+        cube_root: Path,
+        startup_pat: str,
+        linker_pat: str,
+    ) -> None:
+        """把 .ld 和 startup_*.s 从 cube 复制到工程目录（与 src 同级），便于 CMake 优先使用。"""
+        project_dir = Path(project_dir)
+        cube_root = Path(cube_root)
+        log.info("_ensure_linker_startup_in_project: 工程=%s, cube=%s, startup_pat=%s, linker_pat=%s",
+                 project_dir, cube_root, startup_pat, linker_pat)
+
+        # 在 cube 中找匹配的 .ld（先 Projects，再 Drivers）
+        ld_candidates = list((cube_root / "Projects").rglob("*.ld")) if (cube_root / "Projects").exists() else []
+        if not ld_candidates:
+            ld_candidates = list((cube_root / "Drivers").rglob("*.ld"))
+        ld_file = None
+        for p in ld_candidates:
+            if linker_pat.upper() in p.name and "FLASH" in p.name:
+                ld_file = p
+                break
+        if not ld_file and ld_candidates:
+            ld_file = ld_candidates[0]
+        if ld_file:
+            dest_ld = project_dir / ld_file.name
+            if dest_ld != ld_file and (not dest_ld.exists() or dest_ld.stat().st_mtime < ld_file.stat().st_mtime):
+                shutil.copy2(ld_file, dest_ld)
+                log.info("复制 linker: %s -> %s", ld_file, dest_ld)
+                print(f"  [生成] 复制链接脚本: {ld_file.name} -> 工程目录")
+        else:
+            log.warning("cube 中未找到匹配 *%s*FLASH*.ld（已查 Projects/Drivers）", linker_pat)
+
+        # 在 cube 中找匹配的 startup_*.s（CMSIS Device）
+        cmsis_device = cube_root / "Drivers" / "CMSIS" / "Device" / "ST" / "STM32F4xx"
+        startup_list = list(cmsis_device.rglob("startup_stm32*.s")) if cmsis_device.exists() else []
+        if not startup_list:
+            startup_list = list((cube_root / "Drivers").rglob("startup_stm32*.s"))
+        startup_file = None
+        for p in startup_list:
+            if startup_pat.lower() in p.name.lower():
+                startup_file = p
+                break
+        if not startup_file and startup_list:
+            startup_file = startup_list[0]
+        if startup_file:
+            dest_startup = project_dir / startup_file.name
+            if dest_startup != startup_file and (not dest_startup.exists() or dest_startup.stat().st_mtime < startup_file.stat().st_mtime):
+                shutil.copy2(startup_file, dest_startup)
+                log.info("复制 startup: %s -> %s", startup_file, dest_startup)
+                print(f"  [生成] 复制启动文件: {startup_file.name} -> 工程目录")
+        else:
+            log.warning("cube 中未找到匹配 startup_*%s*.s", startup_pat)
 
     def build(
         self,
@@ -112,10 +150,13 @@ class STLoopClient:
         proj = proj.resolve()
         if cube_path is not None:
             cube = cube_path
+            log.info("build: 使用显式 cube_path=%s", cube)
         elif (proj / "cube" / "STM32CubeF4" / "Drivers").exists():
             cube = None
+            log.info("build: 使用项目内嵌 cube (project=%s)", proj)
         else:
             cube = self.cube_path
+            log.info("build: 使用工作区 cube_path=%s", cube)
         return _build(proj, build_dir=build_dir, cube_path=cube)
 
     def flash(
@@ -177,8 +218,16 @@ class STLoopClient:
         (out / "src" / "main.c").write_text(main_c, encoding="utf-8")
         print("  [生成] 复制工程模板...")
         self._copy_template(out, skip_main_c=True)
+        cube_dest = None
         if embed_cube and self.cube_path and (self.cube_path / "Drivers").exists():
-            self._embed_cube(out, self.cube_path)
+            log.info("gen: 内嵌 cube，源=%s", self.cube_path)
+            cube_dest = self._embed_cube(out, self.cube_path)
+            log.info("cube 内嵌结果: %s", cube_dest)
+        # linker/startup 与 lib 判断分离：放到工程目录（与 src 同级），便于编译
+        if cube_dest is not None:
+            self._ensure_linker_startup_in_project(out, cube_dest, startup_pat, linker_pat)
+        else:
+            log.warning("未内嵌 cube，跳过复制 .ld/startup 到工程目录")
         log.info("工程已生成: %s", out)
         return out
 

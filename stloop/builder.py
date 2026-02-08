@@ -44,6 +44,9 @@ def build(
     log.info("工程目录: %s", project_dir)
     log.info("构建目录: %s", build_dir)
     log.info("CUBE_ROOT: %s", cube_path)
+    proj_ld = list(project_dir.glob("*.ld"))
+    proj_startup = list(project_dir.glob("startup_stm32*.s"))
+    log.info("工程目录下 .ld 数量: %d, startup_*.s 数量: %d", len(proj_ld), len(proj_startup))
 
     if not (cube_path / "Drivers").exists():
         raise FileNotFoundError(
