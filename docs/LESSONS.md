@@ -97,3 +97,21 @@
 - 新增 `stloop/linker_gen.py`：芯片内存表 + 模板生成 linker 脚本
 - 当 cube 中找不到匹配的 .ld 时，自动生成到工程目录
 - 支持 F401/F405/F407/F410/F411/F412/F413/F427/F429/F437/F439/F446/F469/F479
+
+### 2025-02-07 按 cube 支持方式，仅用 arm-none-eabi-gcc
+
+**问题**：需按 cube 本身支持的方式编译，startup 有 arm/（Keil）、gcc/（GNU）、iar/ 等，工具链需对应。
+
+**改动**：
+- 编译前检测 `arm-none-eabi-gcc` 是否在 PATH，不存在则报错并提示安装
+- 仅支持 GNU 工具链，对应 cube 的 gcc/ startup、.ld linker
+- 新增 `stloop check`：检测工具链与 cube 是否就绪
+
+### 2025-02-07 编译失败纠错机制（端到端闭环）
+
+**问题**：生成的代码编译可能报错，缺乏纠错则不是真正的端到端。
+
+**改动**：
+- `llm_client.generate_main_c_fix(original_prompt, current_code, build_error)`：根据编译错误请求 LLM 修正代码
+- chat 交互流程、CLI `gen --build`：编译失败时自动进入修复循环（最多 3 轮）
+- 每轮：捕获错误 → 调用 fix → 更新 main.c → 重新编译

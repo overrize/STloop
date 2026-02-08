@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .client import STLoopClient
+from .llm_client import generate_main_c_fix
 from .llm_config import is_llm_configured
 
 log = logging.getLogger("stloop")
@@ -196,16 +197,41 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
         return 1
 
     print(f"工程已生成: {out} （含内嵌 cube 库，可独立复制/二次开发）")
-    print("正在编译...")
-    log.info("编译工程: %s (项目内嵌 cube)", out)
-    try:
-        elf = client.build(out)
-        print(f"编译完成: {elf}")
-    except Exception as e:
-        log.exception("编译失败")
-        print(f"编译失败: {e}")
-        if hasattr(e, "__cause__") and e.__cause__:
-            print(f"详情: {e.__cause__}")
+
+    max_fix_rounds = 3
+    elf = None
+    for attempt in range(max_fix_rounds + 1):
+        label = "重新编译" if attempt > 0 else "编译"
+        print(f"正在{label}...")
+        log.info("编译尝试 %d/%d: %s", attempt + 1, max_fix_rounds + 1, out)
+        try:
+            elf = client.build(out)
+            print(f"编译完成: {elf}")
+            break
+        except Exception as e:
+            err_msg = str(e)
+            if hasattr(e, "__cause__") and e.__cause__:
+                err_msg = str(e.__cause__) or err_msg
+            log.exception("编译失败 (尝试 %d)", attempt + 1)
+            print(f"编译失败: {err_msg[:500]}{'...' if len(err_msg) > 500 else ''}")
+            if attempt < max_fix_rounds:
+                try:
+                    main_c_path = out / "src" / "main.c"
+                    current_code = main_c_path.read_text(encoding="utf-8")
+                    fixed = generate_main_c_fix(
+                        full_prompt, current_code, err_msg, work_dir=client.work_dir
+                    )
+                    main_c_path.write_text(fixed, encoding="utf-8")
+                    print(f"  [修复] 已根据错误修正 main.c，第 {attempt + 1} 轮修复")
+                except Exception as fix_e:
+                    log.exception("修复请求失败")
+                    print(f"修复失败: {fix_e}")
+                    return 1
+            else:
+                print(f"已达最大修复轮数 ({max_fix_rounds})，请手动修改后重试")
+                return 1
+
+    if elf is None:
         return 1
 
     flash_input = _input_line(PROMPT_FLASH).strip().lower()

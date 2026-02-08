@@ -88,3 +88,69 @@ def generate_main_c(
     lines = content.count("\n") + 1 if content else 0
     print(f"  [生成] 解析代码块完成，输出 {lines} 行")
     return content
+
+
+FIX_SYSTEM_PROMPT = """你是一名嵌入式工程师。用户提供的 STM32 C 代码编译失败，你需要根据编译错误修正代码。
+- 仅使用 STM32 LL 库 API，不使用 HAL
+- 根据错误信息定位问题并修正（如头文件、符号、类型、语法等）
+- 只输出修正后的完整 C 代码，不要解释
+"""
+
+
+def generate_main_c_fix(
+    original_prompt: str,
+    current_code: str,
+    build_error: str,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    work_dir: Optional[Path] = None,
+) -> str:
+    """根据编译错误修正 main.c，返回修正后的代码"""
+    if OpenAI is None:
+        raise RuntimeError("请安装 openai: pip install openai")
+
+    cfg_key, cfg_base, cfg_model = get_llm_config(work_dir)
+    api_key = api_key or cfg_key
+    base_url = base_url or cfg_base
+    model = model or cfg_model
+
+    if not api_key:
+        raise ValueError("未设置 OPENAI_API_KEY 或 STLOOP_API_KEY")
+
+    user_content = f"""【原始需求】
+{original_prompt}
+
+【当前 main.c 代码（编译失败）】
+```c
+{current_code}
+```
+
+【编译错误】
+{build_error}
+
+请根据上述编译错误修正代码，只输出修正后的完整 C 代码，不要解释。"""
+
+    client_kw = {"api_key": api_key}
+    if base_url:
+        client_kw["base_url"] = base_url.rstrip("/")
+    client = OpenAI(**client_kw)
+
+    log.info("修复编译错误，模型: %s", model)
+    print("  [修复] 根据编译错误请求模型修正...")
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": FIX_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.1,
+    )
+    content = resp.choices[0].message.content or ""
+    if "```c" in content:
+        content = content.split("```c", 1)[1].split("```", 1)[0].strip()
+    elif "```" in content:
+        content = content.split("```", 1)[1].split("```", 1)[0].strip()
+    log.info("修复后代码长度: %d", len(content))
+    print(f"  [修复] 收到修正代码 ({len(content)} 字符)")
+    return content

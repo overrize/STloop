@@ -51,6 +51,10 @@ def main() -> int:
     p_cube.add_argument("-o", "--output", type=Path, help="输出目录，默认 work-dir/cube/STM32CubeF4")
     p_cube.set_defaults(func=_cmd_cube_download)
 
+    # check — 检测工具链与 cube
+    p_check = sub.add_parser("check", help="检测 arm-none-eabi-gcc 与 cube 是否就绪")
+    p_check.set_defaults(func=_cmd_check)
+
     # build
     p_build = sub.add_parser("build", help="编译工程")
     p_build.add_argument("project", type=Path, help="工程目录")
@@ -66,6 +70,15 @@ def main() -> int:
         args.func = _cmd_chat
         args.output = None
     client = STLoopClient(work_dir=args.work_dir)
+    # 启动后自动校验工具链（除 check、cube-download、仅 gen 不编译外）
+    if args.cmd not in ("check", "cube-download") and not (args.cmd == "gen" and not getattr(args, "build", False)):
+        try:
+            from .builder import TOOLCHAIN_HINT, ensure_toolchain
+            ensure_toolchain()
+        except RuntimeError as e:
+            print(f"[stloop] 工具链校验失败: {e}", file=sys.stderr)
+            print(f"  {TOOLCHAIN_HINT}", file=sys.stderr)
+            return 1
     return args.func(client, args)
 
 
@@ -83,16 +96,59 @@ def _cmd_demo(client: STLoopClient, args) -> int:
 
 def _cmd_gen(client: STLoopClient, args) -> int:
     from . import _paths
+    from .llm_client import generate_main_c_fix
+
     output = args.output or _paths.get_projects_dir(client.work_dir) / "generated"
     out = client.gen(args.prompt, output)
     print(f"工程已生成: {out}")
     if args.build:
         client.ensure_cube()
-        elf = client.build(out)
-        print(f"编译完成: {elf}")
-        if args.flash:
+        max_fix_rounds = 3
+        elf = None
+        for attempt in range(max_fix_rounds + 1):
+            label = "重新编译" if attempt > 0 else "编译"
+            print(f"正在{label}...")
+            try:
+                elf = client.build(out)
+                print(f"编译完成: {elf}")
+                break
+            except Exception as e:
+                err_msg = str(getattr(e, "__cause__", e) or e)
+                print(f"编译失败: {err_msg[:500]}{'...' if len(err_msg) > 500 else ''}")
+                if attempt < max_fix_rounds:
+                    try:
+                        main_c = (out / "src" / "main.c").read_text(encoding="utf-8")
+                        fixed = generate_main_c_fix(args.prompt, main_c, err_msg, work_dir=client.work_dir)
+                        (out / "src" / "main.c").write_text(fixed, encoding="utf-8")
+                        print(f"  [修复] 第 {attempt + 1} 轮修正 main.c")
+                    except Exception as fix_e:
+                        print(f"修复失败: {fix_e}")
+                        return 1
+                else:
+                    print(f"已达最大修复轮数 ({max_fix_rounds})")
+                    return 1
+        if elf and args.flash:
             client.flash(elf)
             print("烧录完成")
+    return 0
+
+
+def _cmd_check(client: STLoopClient, args) -> int:
+    from .builder import TOOLCHAIN_HINT, ensure_toolchain
+    try:
+        ensure_toolchain()
+        print("arm-none-eabi-gcc: 已就绪")
+    except RuntimeError as e:
+        print(f"arm-none-eabi-gcc: 未找到")
+        print(f"  {TOOLCHAIN_HINT}")
+        return 1
+    try:
+        client.ensure_cube()
+        print(f"STM32CubeF4: 已就绪 ({client.cube_path})")
+    except RuntimeError as e:
+        print(f"STM32CubeF4: {e}")
+        return 1
+    print("环境检查通过")
     return 0
 
 

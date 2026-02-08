@@ -119,11 +119,14 @@ class STLoopClient:
             else:
                 log.warning("linker 生成失败，芯片 %s 可能不在支持列表", linker_pat)
 
-        # 在 cube 中找匹配的 startup_*.s（CMSIS Device）
+        # 在 cube 中找匹配的 startup_*.s（必须用 GCC 语法，arm/ 为 Keil 语法不兼容）
         cmsis_device = cube_root / "Drivers" / "CMSIS" / "Device" / "ST" / "STM32F4xx"
-        startup_list = list(cmsis_device.rglob("startup_stm32*.s")) if cmsis_device.exists() else []
-        if not startup_list:
-            startup_list = list((cube_root / "Drivers").rglob("startup_stm32*.s"))
+        all_startup = list(cmsis_device.rglob("startup_stm32*.s")) if cmsis_device.exists() else []
+        if not all_startup:
+            all_startup = list((cube_root / "Drivers").rglob("startup_stm32*.s"))
+        # 优先 gcc/ 目录（GNU 汇编器），排除 arm/（ARM/Keil 语法）
+        gcc_startups = [p for p in all_startup if "gcc" in p.parts]
+        startup_list = gcc_startups if gcc_startups else [p for p in all_startup if "arm" not in p.parts] or all_startup
         startup_file = None
         for p in startup_list:
             if startup_pat.lower() in p.name.lower():

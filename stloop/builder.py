@@ -9,6 +9,24 @@ from typing import Optional
 
 log = logging.getLogger("stloop")
 
+# STLoop 仅支持 arm-none-eabi (GNU) 工具链，与 cube 的 gcc/ startup、.ld 对应
+TOOLCHAIN_PREFIX = "arm-none-eabi"
+TOOLCHAIN_HINT = (
+    "请安装 arm-none-eabi-gcc 并加入 PATH。"
+    "下载: https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads 或 xPack"
+)
+
+
+def ensure_toolchain() -> bool:
+    """检测 arm-none-eabi-gcc 是否可用，不可用则抛异常。"""
+    gcc = shutil.which(f"{TOOLCHAIN_PREFIX}-gcc")
+    if not gcc:
+        raise RuntimeError(
+            f"未找到 {TOOLCHAIN_PREFIX}-gcc 工具链。{TOOLCHAIN_HINT}"
+        )
+    log.info("工具链: %s", gcc)
+    return True
+
 
 def _get_generator() -> str:
     """根据平台选择 CMake 生成器"""
@@ -54,6 +72,7 @@ def build(
             f"请确认 cube 路径正确，或运行: python -m stloop cube-download"
         )
 
+    ensure_toolchain()
     generator = generator or _get_generator()
     log.info("CMake 生成器: %s", generator)
 
