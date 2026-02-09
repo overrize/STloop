@@ -2,6 +2,8 @@
 from pathlib import Path
 from typing import Optional
 
+from .errors import ConfigurationError
+
 try:
     from pyocd.core.helpers import ConnectHelper
     from pyocd.flash.file_programmer import FileProgrammer
@@ -18,7 +20,7 @@ def flash(
 ) -> bool:
     """使用 pyOCD 烧录固件到设备。"""
     if ConnectHelper is None or FileProgrammer is None:
-        raise RuntimeError("请安装 pyocd: pip install pyocd")
+        raise ConfigurationError("请安装 pyocd: pip install pyocd")
 
     options = {"frequency": frequency, "target_override": target_override}
     if probe_id:

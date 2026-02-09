@@ -2,6 +2,8 @@
 from pathlib import Path
 from typing import Optional, Callable
 
+from .errors import ConfigurationError
+
 try:
     from pyocd.core.helpers import ConnectHelper
     from pyocd.flash.file_programmer import FileProgrammer
@@ -19,7 +21,7 @@ def run_with_probe(
 ) -> bool:
     """烧录 ELF 并运行测试。"""
     if ConnectHelper is None:
-        raise RuntimeError("请安装 pyocd: pip install pyocd")
+        raise ConfigurationError("请安装 pyocd: pip install pyocd")
 
     options = {"frequency": 4_000_000, "target_override": target_override}
     if probe_id:

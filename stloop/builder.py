@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .errors import BuildError, ConfigurationError
+
 log = logging.getLogger("stloop")
 
 # STLoop 仅支持 arm-none-eabi (GNU) 工具链，与 cube 的 gcc/ startup、.ld 对应
@@ -17,11 +19,32 @@ TOOLCHAIN_HINT = (
 )
 
 
+def _parse_build_error(stderr: str) -> str:
+    """解析编译/CMake 错误，返回用户友好提示"""
+    text = (stderr or "").strip()
+    if not text:
+        return "无错误输出"
+    if "arm-none-eabi-gcc" in text and ("not found" in text or "No such file" in text):
+        return (
+            f"未找到 {TOOLCHAIN_PREFIX}-gcc 编译器。\n"
+            f"{TOOLCHAIN_HINT}"
+        )
+    if "CUBE_ROOT" in text or "STM32Cube" in text:
+        return (
+            "STM32Cube 路径配置错误。\n"
+            "请运行: python -m stloop cube-download"
+        )
+    if "cmake" in text.lower() and ("not found" in text or "No such file" in text):
+        return "未找到 cmake 命令，请安装 CMake 并加入 PATH。"
+    # 返回截断的原始信息
+    return text[:600] + ("..." if len(text) > 600 else "")
+
+
 def ensure_toolchain() -> bool:
     """检测 arm-none-eabi-gcc 是否可用，不可用则抛异常。"""
     gcc = shutil.which(f"{TOOLCHAIN_PREFIX}-gcc")
     if not gcc:
-        raise RuntimeError(
+        raise ConfigurationError(
             f"未找到 {TOOLCHAIN_PREFIX}-gcc 工具链。{TOOLCHAIN_HINT}"
         )
     log.info("工具链: %s", gcc)
@@ -67,7 +90,7 @@ def build(
     log.info("工程目录下 .ld 数量: %d, startup_*.s 数量: %d", len(proj_ld), len(proj_startup))
 
     if not (cube_path / "Drivers").exists():
-        raise FileNotFoundError(
+        raise ConfigurationError(
             f"STM32Cube 未找到: {cube_path}\n"
             f"请确认 cube 路径正确，或运行: python -m stloop cube-download"
         )
@@ -94,15 +117,15 @@ def build(
         )
         if result.returncode != 0:
             log.error("CMake 配置失败 (exit %d)", result.returncode)
+            err_text = result.stderr or result.stdout or "无输出"
             if result.stderr:
                 log.error("stderr: %s", result.stderr)
             if result.stdout:
                 log.error("stdout: %s", result.stdout)
-            raise RuntimeError(
-                f"CMake 配置失败:\n{result.stderr or result.stdout or '无输出'}"
-            )
+            msg = _parse_build_error(err_text)
+            raise BuildError(f"CMake 配置失败:\n{msg}")
     except FileNotFoundError as e:
-        raise RuntimeError(
+        raise ConfigurationError(
             "未找到 cmake 命令，请安装 CMake 并加入 PATH。"
         ) from e
 
@@ -116,18 +139,21 @@ def build(
         )
         if result.returncode != 0:
             log.error("编译失败 (exit %d)", result.returncode)
+            err_text = result.stderr or result.stdout or "无输出"
             if result.stderr:
                 log.error("stderr: %s", result.stderr)
             if result.stdout:
                 log.error("stdout: %s", result.stdout)
-            err_msg = result.stderr or result.stdout or "无输出"
-            raise RuntimeError(f"编译失败:\n{err_msg}")
+            msg = _parse_build_error(err_text)
+            raise BuildError(f"编译失败:\n{msg}")
     except FileNotFoundError:
-        raise RuntimeError("未找到 cmake 命令") from None
+        raise ConfigurationError("未找到 cmake 命令") from None
 
     elf = build_dir / "stm32_app.elf"
     if not elf.exists():
-        raise FileNotFoundError(f"编译未生成 {elf}，请检查 CMake 配置与 arm-none-eabi-gcc 是否已安装")
+        raise BuildError(
+            f"编译未生成 {elf}，请检查 CMake 配置与 arm-none-eabi-gcc 是否已安装"
+        )
 
     log.info("编译成功: %s", elf)
     return elf

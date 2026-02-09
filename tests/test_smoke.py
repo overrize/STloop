@@ -96,14 +96,57 @@ def test_embed_cube_updates_lib(tmp_path):
     assert result == tmp_path / "cube" / "STM32CubeF4"
 
 
+def test_demo_blink_flow(tmp_path, monkeypatch):
+    """demo_blink 流程与真实 stloop demo blink 一致：ensure_cube、copy_template、ensure_linker_startup、build"""
+    from unittest.mock import MagicMock
+
+    from stloop import _paths
+    from stloop.client import STLoopClient
+
+    # 准备与真实环境一致的目录：demos/blink、cube/STM32CubeF4
+    (tmp_path / "demos" / "blink").mkdir(parents=True)
+    cube = tmp_path / "cube" / "STM32CubeF4"
+    (cube / "Drivers" / "CMSIS" / "Device" / "ST" / "STM32F4xx" / "Source" / "Templates" / "gcc").mkdir(
+        parents=True
+    )
+    (cube / "Drivers" / "STM32F4xx_HAL_Driver" / "Inc").mkdir(parents=True)
+    # 最小 gcc startup（GNU 语法）
+    (cube / "Drivers" / "CMSIS" / "Device" / "ST" / "STM32F4xx" / "Source" / "Templates" / "gcc" / "startup_stm32f411xe.s").write_text(
+        ".syntax unified\n.thumb\n.global g_pfnVectors\n.section .isr_vector\ng_pfnVectors:\n.word 0\n"
+    )
+    (cube / "Drivers" / "CMSIS" / "Device" / "ST" / "STM32F4xx" / "Include").mkdir(parents=True)
+
+    client = STLoopClient(work_dir=tmp_path)
+    client.cube_path = cube
+
+    monkeypatch.setattr(_paths, "get_demos_dir", lambda: tmp_path / "demos")
+    mock_elf = tmp_path / "build" / "stm32_app.elf"
+    mock_elf.parent.mkdir(parents=True, exist_ok=True)
+    mock_elf.write_text("")
+    monkeypatch.setattr("stloop.client._build", MagicMock(return_value=mock_elf))
+
+    elf = client.demo_blink(flash=False, test=False)
+
+    assert elf == mock_elf
+    # 验证与真实调用一致的副作用
+    project = tmp_path / "demos" / "blink"
+    assert (project / "CMakeLists.txt").exists()
+    assert any(project.glob("*.ld"))
+    assert (project / "startup_stm32f411xe.s").exists()
+
+
 def test_gen_raises_without_api_key(monkeypatch, tmp_path):
     """测试 gen 在未配置 API Key 时抛出明确错误"""
     from stloop.client import STLoopClient
+    from stloop.errors import LLMError
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("STLOOP_API_KEY", raising=False)
     client = STLoopClient(work_dir=tmp_path)
-    with pytest.raises((ValueError, RuntimeError), match="OPENAI_API_KEY|STLOOP_API_KEY|配置|openai"):
+    with pytest.raises(
+        (ValueError, LLMError),
+        match="OPENAI_API_KEY|STLOOP_API_KEY|配置|openai|API Key",
+    ):
         client.gen("PA5 LED 闪烁", tmp_path / "test_gen")
 
 

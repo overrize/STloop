@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .client import STLoopClient
+from .errors import LLMError
 from .llm_client import generate_main_c_fix
 from .llm_config import is_llm_configured
 
@@ -57,6 +58,14 @@ SETUP_INSTRUCTIONS = """
 """
 
 
+def _has_pypdf() -> bool:
+    try:
+        import pypdf  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _extract_pdf_text(path: Path, max_chars: int = 15000) -> Optional[str]:
     """从 PDF 提取文本（可选依赖 pypdf）"""
     try:
@@ -81,6 +90,10 @@ def _build_llm_prompt(
     datasheet_paths: Optional[List[Path]] = None,
 ) -> str:
     """构建发给 LLM 的完整 prompt"""
+    if (schematic_path or datasheet_paths) and not _has_pypdf():
+        log.warning("未安装 pypdf，无法解析 PDF。运行: pip install stloop[pdf]")
+        print("  [提示] 未安装 pypdf，无法解析 PDF。运行: pip install stloop[pdf]")
+
     parts = [requirement]
     if schematic_path and schematic_path.exists():
         schematic_text = _extract_pdf_text(schematic_path)
@@ -185,12 +198,8 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
         else:
             print(f"错误: {e}")
         return 1
-    except RuntimeError as e:
-        if "401" in str(e) or "OPENAI_API_BASE" in str(e):
-            print(f"生成失败: {e}")
-            print("\n提示: 使用 Kimi 时需在 .env 中设置 OPENAI_API_BASE=https://api.moonshot.cn/v1")
-        else:
-            print(f"生成失败: {e}")
+    except LLMError as e:
+        print(f"生成失败: {e}")
         return 1
     except Exception as e:
         print(f"生成失败: {e}")

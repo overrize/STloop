@@ -1,8 +1,10 @@
 """大模型接口 — 用于代码生成（支持 OpenAI、Kimi 等兼容 API）"""
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
+from .errors import LLMError
 from .llm_config import get_llm_config
 
 log = logging.getLogger("stloop")
@@ -21,16 +23,81 @@ API_BASE_HINT = """
 获取 Key: https://platform.moonshot.cn/console/api-keys
 """
 
-SYSTEM_PROMPT = """你是一名嵌入式工程师，专门使用 STM32 LL（Low-Level）库开发固件。
-用户会描述硬件需求（如 GPIO、LED、外设等），你需要生成对应的 C 代码。
 
-要求：
-- 仅使用 STM32 LL 库 API（如 LL_GPIO_*, LL_RCC_*），不使用 HAL
-- 目标芯片默认 STM32F411RE（Cortex-M4, 100MHz）
-- 代码需包含必要的时钟配置、GPIO 初始化
-- 只输出可编译的 C 代码，不要解释性文字
-- 头文件使用：stm32f4xx.h, stm32f4xx_ll_gpio.h, stm32f4xx_ll_bus.h, stm32f4xx_ll_utils.h
-"""
+def check_code_safety(code: str) -> tuple[bool, list[str]]:
+    """检查 LLM 生成代码的安全性。返回 (是否安全, 警告列表)"""
+    warnings: list[str] = []
+    # 危险系统调用（嵌入式不应包含）
+    dangerous = [
+        (r"system\s*\(", "system()"),
+        (r"exec[lv]?\s*\(", "exec*()"),
+        (r"popen\s*\(", "popen()"),
+    ]
+    for pat, name in dangerous:
+        if re.search(pat, code):
+            warnings.append(f"检测到可疑调用: {name}")
+
+    if re.search(r"HAL_\w+", code):
+        warnings.append("代码包含 HAL 库调用，应使用 LL 库")
+
+    if "__asm" in code or re.search(r"\basm\s*\(", code):
+        warnings.append("代码包含内联汇编，请人工审查")
+
+    return (len(warnings) == 0, warnings)
+
+
+SYSTEM_PROMPT = """你是一名嵌入式工程师，专门使用 STM32 LL（Low-Level）库开发固件。
+
+## 代码要求
+1. **仅使用 LL 库**：LL_GPIO_*, LL_RCC_*, LL_UTILS_* 等，禁止使用 HAL
+2. **必须包含头文件**：
+   #include "main.h"
+   #include "stm32f4xx_ll_gpio.h"
+   #include "stm32f4xx_ll_bus.h"
+   #include "stm32f4xx_ll_rcc.h"
+   #include "stm32f4xx_ll_utils.h"
+3. **时钟配置**：
+   - HSE = 8MHz（Nucleo 板载晶振）
+   - PLL 配置到 100MHz（F411RE 最大频率）
+   - 必须等待 HSE/PLL 就绪（while (!LL_RCC_HSE_IsReady()); 等）
+4. **代码结构**：
+   - 包含 SystemClock_Config() 和外设初始化函数
+   - main() 中先调用时钟配置，再初始化外设
+5. **输出格式**：仅输出 C 代码，不要 markdown 标记或解释文字
+
+## 示例（LED 闪烁 PA5）
+```c
+#include "main.h"
+#include "stm32f4xx_ll_gpio.h"
+#include "stm32f4xx_ll_bus.h"
+#include "stm32f4xx_ll_utils.h"
+
+static void SystemClock_Config(void);
+
+int main(void) {
+    SystemClock_Config();
+    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOA);
+    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_5, LL_GPIO_MODE_OUTPUT);
+    while (1) {
+        LL_GPIO_TogglePin(GPIOA, LL_GPIO_PIN_5);
+        LL_mDelay(500);
+    }
+}
+
+static void SystemClock_Config(void) {
+    LL_FLASH_SetLatency(LL_FLASH_LATENCY_2);
+    LL_RCC_HSE_Enable();
+    while (!LL_RCC_HSE_IsReady());
+    LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSE, LL_RCC_PLLM_DIV_4, 100, LL_RCC_PLLP_DIV_2);
+    LL_RCC_PLL_Enable();
+    while (!LL_RCC_PLL_IsReady());
+    LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
+    while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL);
+    LL_SetSystemCoreClock(100000000);
+}
+```
+
+根据用户需求生成代码。"""
 
 
 def generate_main_c(
@@ -70,13 +137,21 @@ def generate_main_c(
             temperature=0.2,
         )
     except (APIStatusError, APIError) as e:
-        err_msg = str(e)
-        if "401" in err_msg or "invalid_api_key" in err_msg.lower():
+        err_msg = str(e).lower()
+        if "401" in err_msg or "invalid_api_key" in err_msg:
             if not base_url:
-                raise RuntimeError(
-                    f"API 认证失败（401）。当前未设置 OPENAI_API_BASE，请求发往 OpenAI。{API_BASE_HINT}"
+                raise LLMError(
+                    f"API Key 无效或未设置。\n"
+                    f"请在 .env 中配置 OPENAI_API_KEY。{API_BASE_HINT}"
                 ) from e
-        raise
+            raise LLMError(
+                f"API Key 无效（{base_url}）。请检查 .env 中的 OPENAI_API_KEY 是否正确。"
+            ) from e
+        if "429" in str(e) or "rate_limit" in err_msg:
+            raise LLMError("API 请求频率超限，请稍后重试。") from e
+        if "timeout" in err_msg:
+            raise LLMError("API 请求超时，请检查网络连接。") from e
+        raise LLMError(f"API 调用失败: {str(e)[:200]}") from e
     content = resp.choices[0].message.content or ""
     log.debug("原始响应长度: %d", len(content))
     print(f"  [生成] 收到响应 ({len(content)} 字符)")
@@ -87,6 +162,13 @@ def generate_main_c(
     log.info("解析后代码长度: %d", len(content))
     lines = content.count("\n") + 1 if content else 0
     print(f"  [生成] 解析代码块完成，输出 {lines} 行")
+
+    safe, warnings = check_code_safety(content)
+    if not safe:
+        for w in warnings:
+            log.warning("生成代码安全检查: %s", w)
+            print(f"  [警告] {w}")
+
     return content
 
 

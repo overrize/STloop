@@ -244,14 +244,17 @@ class STLoopClient:
         运行 LED 闪烁 Demo。
         返回 .elf 路径。
         """
-        self.ensure_cube()
+        cube = self.ensure_cube()
         demos = _paths.get_demos_dir()
         if not demos.exists():
             demos = self.work_dir / "demos"
         project_dir = demos / "blink"
+        project_dir.mkdir(parents=True, exist_ok=True)
         if not (project_dir / "CMakeLists.txt").exists():
             self._copy_template(project_dir)
-        elf = self.build(project_dir, cube_path=self.cube_path)
+        # 与 gen 一致：build 前确保 linker/startup 在工程目录（demo 默认 F411）
+        self._ensure_linker_startup_in_project(project_dir, cube, startup_pat="f411", linker_pat="F411")
+        elf = self.build(project_dir, cube_path=cube)
         if flash:
             self.flash(elf)
         if test:
