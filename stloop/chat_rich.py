@@ -1,0 +1,639 @@
+"""
+STLoop 交互式终端 - 重构版
+
+使用 Rich UI 组件的现代交互界面。
+
+流程：
+1. 显示启动画面
+2. 硬件选择（可选）
+3. 输入需求
+4. 生成代码（带进度）
+5. 编译（带进度和自动修复）
+6. 烧录确认
+"""
+
+import logging
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+from rich.console import Console
+from rich.prompt import Prompt, Confirm
+from rich.panel import Panel
+from rich.text import Text
+
+from .client import STLoopClient
+from .build_fix_policy import should_attempt_main_c_fix
+from .errors import LLMError
+from .llm_client import generate_main_c_fix
+from .llm_config import is_llm_configured
+
+# 新的 UI 组件
+from .ui import (
+    get_console,
+    HardwareCatalog,
+    select_mcu,
+    create_progress,
+    StepIndicator,
+    create_spinner,
+    SerialMonitor,
+    create_monitor,
+)
+from .ui.components import (
+    render_splash,
+    render_header,
+    create_success_panel,
+    create_error_panel,
+    create_info_panel,
+    create_code_panel,
+)
+
+log = logging.getLogger("stloop")
+
+
+def _setup_instructions(console: Console) -> None:
+    """显示 API 配置说明"""
+    content = """
+[cyan]STLoop requires LLM API configuration to generate code[/cyan]
+
+[bold]Method 1: Create .env file (Recommended)[/bold]
+Copy .env.example to .env and fill in:
+
+[cyan]# Kimi K2[/cyan]
+OPENAI_API_KEY=sk-xxx
+OPENAI_API_BASE=https://api.moonshot.cn/v1
+OPENAI_MODEL=kimi-k2-0905-preview
+
+[cyan]# OpenAI[/cyan]
+OPENAI_API_KEY=sk-xxx
+
+[bold]Method 2: Environment Variables[/bold]
+PowerShell: $env:OPENAI_API_KEY="sk-xxx"
+Linux/Mac: export OPENAI_API_KEY=sk-xxx
+
+[dim]Get API Key:[/dim]
+- Kimi: https://platform.moonshot.cn/console/api-keys
+- OpenAI: https://platform.openai.com/api-keys
+"""
+
+    console.print(
+        Panel(
+            content,
+            title="[yellow]Configuration Required[/yellow]",
+            border_style="yellow",
+        )
+    )
+
+
+def _has_pypdf() -> bool:
+    """检查是否安装了 pypdf"""
+    try:
+        import pypdf  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _extract_pdf_text(path: Path, max_chars: int = 15000) -> Optional[str]:
+    """从 PDF 提取文本"""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None
+    try:
+        reader = PdfReader(path)
+        text = ""
+        for page in reader.pages[:20]:
+            text += page.extract_text() or ""
+            if len(text) >= max_chars:
+                break
+        return text[:max_chars].strip() or None
+    except Exception:
+        return None
+
+
+def _build_llm_prompt(
+    requirement: str,
+    schematic_path: Optional[Path] = None,
+    datasheet_paths: Optional[List[Path]] = None,
+    console: Optional[Console] = None,
+) -> str:
+    """构建 LLM prompt"""
+    console = console or get_console()
+
+    if (schematic_path or datasheet_paths) and not _has_pypdf():
+        console.print("[yellow][!] pypdf not installed. Run: pip install stloop[pdf][/yellow]")
+
+    parts = [requirement]
+
+    if schematic_path and schematic_path.exists():
+        schematic_text = _extract_pdf_text(schematic_path)
+        if schematic_text:
+            parts.append(f"\n\n[Schematic Reference]\n{schematic_text}")
+        else:
+            parts.append(f"\n\nUser provided schematic: {schematic_path}")
+
+    if datasheet_paths:
+        for p in datasheet_paths:
+            if p.exists():
+                text = _extract_pdf_text(p)
+                if text:
+                    parts.append(f"\n\n[Datasheet Reference: {p.name}]\n{text}")
+                else:
+                    parts.append(f"\n\nUser provided datasheet: {p}")
+
+    return "".join(parts)
+
+
+def _prompt_schematic(console: Console) -> Optional[Path]:
+    """提示输入原理图路径"""
+    path_str = Prompt.ask(
+        "[cyan]Schematic path[/cyan] [dim](PDF/image, or press Enter to skip)[/dim]",
+        default="",
+        show_default=False,
+    )
+
+    if not path_str:
+        return None
+
+    path = Path(path_str.strip())
+    if path.exists():
+        console.print(f"[green][OK] Using schematic: {path}[/green]")
+        return path.resolve()
+    else:
+        console.print(f"[yellow][!] File not found, skipped: {path_str}[/yellow]")
+        return None
+
+
+def _prompt_datasheets(console: Console) -> List[Path]:
+    """提示输入芯片手册路径"""
+    paths_str = Prompt.ask(
+        "[cyan]Datasheet paths[/cyan] [dim](comma-separated, or press Enter for STM32F411RE)[/dim]",
+        default="",
+        show_default=False,
+    )
+
+    if not paths_str:
+        return []
+
+    paths = []
+    for raw in paths_str.replace(";", ",").split(","):
+        p = Path(raw.strip())
+        if p.exists():
+            paths.append(p.resolve())
+            console.print(f"[green][OK] Using datasheet: {p.resolve()}[/green]")
+        elif raw.strip():
+            console.print(f"[yellow][!] File not found, skipped: {raw.strip()}[/yellow]")
+
+    return paths
+
+
+def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
+    """确保 Cube 已下载，带 UI 反馈"""
+    with create_spinner("Checking STM32Cube dependencies..."):
+        try:
+            cube = client.ensure_cube()
+            console.print(f"[green][OK] STM32Cube ready: {cube}[/green]")
+            return True
+        except RuntimeError as e:
+            log.exception("Dependency preparation failed")
+            console.print(f"\n[red][X] Dependency preparation failed: {e}[/red]")
+
+            from .scripts.download_cube import DOWNLOAD_FAIL_HINT
+
+            console.print(
+                Panel(
+                    DOWNLOAD_FAIL_HINT,
+                    title="[yellow]Download Failed[/yellow]",
+                    border_style="yellow",
+                )
+            )
+
+            if Confirm.ask("[cyan]Retry?[/cyan]", default=True):
+                return _ensure_cube_with_ui(client, console)
+            return False
+
+
+def _generate_code_with_ui(
+    client: STLoopClient,
+    prompt: str,
+    output_dir: Path,
+    datasheet_paths: Optional[List[Path]],
+    console: Console,
+) -> Optional[Path]:
+    """生成代码，带 UI 反馈"""
+    console.print("\n[bold cyan]Generating code...[/bold cyan]")
+
+    try:
+        with create_spinner("Querying AI Agent..."):
+            out = client.gen(prompt, output_dir, datasheet_paths=datasheet_paths)
+
+        console.print(
+            create_success_panel(
+                "Code generated successfully!",
+                details={"Output": str(out)},
+            )
+        )
+
+        # 显示生成的代码预览
+        main_c_path = out / "src" / "main.c"
+        if main_c_path.exists():
+            code = main_c_path.read_text(encoding="utf-8")
+            preview = "\n".join(code.split("\n")[:30])
+            if len(code.split("\n")) > 30:
+                preview += "\n..."
+            console.print(create_code_panel(preview, title="main.c (preview)"))
+
+        return out
+
+    except ValueError as e:
+        if "OPENAI_API_KEY" in str(e) or "STLOOP_API_KEY" in str(e):
+            console.print("[red][X] API Key not configured[/red]")
+            _setup_instructions(console)
+        else:
+            console.print(create_error_panel(str(e), title="Generation Failed"))
+        return None
+
+    except LLMError as e:
+        console.print(create_error_panel(str(e), title="LLM Error"))
+        return None
+
+    except Exception as e:
+        console.print(create_error_panel(str(e), title="Unexpected Error"))
+        return None
+
+
+def _build_with_ui(
+    client: STLoopClient,
+    project_dir: Path,
+    prompt: str,
+    console: Console,
+) -> Optional[Path]:
+    """编译工程，带进度和自动修复"""
+    max_fix_rounds = 3
+    elf = None
+
+    for attempt in range(max_fix_rounds + 1):
+        label = "Recompiling" if attempt > 0 else "Compiling"
+
+        with create_progress() as progress:
+            task = progress.add_task(f"{label}...", total=100)
+
+            try:
+                # 模拟进度更新
+                for i in range(100):
+                    progress.update(task, advance=1)
+                    # 实际编译不需要进度更新，这里为了视觉效果
+                    if i == 50:
+                        elf = client.build(project_dir)
+                        break
+
+                console.print(
+                    create_success_panel(
+                        "Build completed!",
+                        details={"ELF": str(elf)},
+                    )
+                )
+                return elf
+
+            except Exception as e:
+                err_msg = str(getattr(e, "__cause__", e) or e)
+                progress.stop()
+
+                console.print(
+                    create_error_panel(
+                        err_msg[:500],
+                        title=f"Build Failed (Attempt {attempt + 1}/{max_fix_rounds + 1})",
+                    )
+                )
+
+                if attempt < max_fix_rounds:
+                    can_fix, reason = should_attempt_main_c_fix(err_msg)
+
+                    if not can_fix:
+                        console.print(f"[yellow][!] Cannot auto-fix: {reason}[/yellow]")
+                        return None
+
+                    try:
+                        main_c_path = project_dir / "src" / "main.c"
+                        current_code = main_c_path.read_text(encoding="utf-8")
+
+                        with create_spinner("Requesting AI fix..."):
+                            fixed = generate_main_c_fix(
+                                prompt, current_code, err_msg, work_dir=client.work_dir
+                            )
+
+                        main_c_path.write_text(fixed, encoding="utf-8")
+                        console.print(f"[green][OK] Fixed main.c (Round {attempt + 1})[/green]")
+
+                    except Exception as fix_e:
+                        console.print(create_error_panel(str(fix_e), title="Fix Failed"))
+                        return None
+                else:
+                    console.print(f"[red][X] Max retries ({max_fix_rounds}) exceeded[/red]")
+                    return None
+
+    return None
+
+
+def _flash_with_ui(client: STLoopClient, elf_path: Path, console: Console) -> bool:
+    """烧录固件，带 UI 反馈"""
+    console.print("\n[bold cyan]Flashing firmware...[/bold cyan]")
+
+    try:
+        with create_spinner("Connecting to device..."):
+            client.flash(elf_path)
+
+        console.print("[green][OK] Flash completed![/green]")
+        return True
+
+    except Exception as e:
+        console.print(create_error_panel(str(e), title="Flash Failed"))
+        return False
+
+
+def run_interactive_rich(
+    client: STLoopClient,
+    output_dir: Optional[Path] = None,
+    select_hardware: bool = False,
+) -> int:
+    """
+    运行重构后的交互式会话
+
+    Args:
+        client: STLoopClient 实例
+        output_dir: 输出目录
+        select_hardware: 是否先选择硬件
+
+    Returns:
+        退出码
+    """
+    console = get_console()
+
+    # 1. 显示启动画面
+    console.clear()
+    render_splash()
+
+    # 2. 检查 LLM 配置
+    if not is_llm_configured(client.work_dir):
+        _setup_instructions(console)
+        return 1
+
+    # 3. 硬件选择（可选）
+    if select_hardware:
+        console.print("\n[bold cyan]Step 1: Select Hardware[/bold cyan]")
+        mcu = select_mcu(console)
+        if mcu:
+            console.print(f"[green][OK] Selected: {mcu.name}[/green]")
+            client.target = mcu.name.lower()
+        else:
+            console.print("[yellow][!] Using default: STM32F411RE[/yellow]")
+
+    # 4. 输入需求
+    console.print("\n[bold cyan]Step 2: Describe Your Requirements[/bold cyan]")
+    console.print(
+        Panel(
+            "Examples:\n"
+            "  • PA5 LED blinking, 500ms period\n"
+            "  • USART2 configured for 115200 baud\n"
+            "  • TIM2 timer interrupt every 1ms",
+            border_style="dim",
+        )
+    )
+
+    requirement = Prompt.ask("[cyan]Your requirement[/cyan]")
+
+    if not requirement or requirement.lower() in ("quit", "exit", "q"):
+        console.print("[dim]Exited.[/dim]")
+        return 0
+
+    # 5. 输入原理图和手册
+    console.print("\n[bold cyan]Step 3: Additional Resources (Optional)[/bold cyan]")
+    schematic_path = _prompt_schematic(console)
+    datasheet_paths = _prompt_datasheets(console)
+
+    # 6. 确保依赖
+    console.print("\n[bold cyan]Step 4: Preparing Dependencies[/bold cyan]")
+    if not _ensure_cube_with_ui(client, console):
+        return 1
+
+    # 7. 生成代码
+    console.print("\n[bold cyan]Step 5: Code Generation[/bold cyan]")
+
+    from . import _paths
+
+    out_dir = output_dir or _paths.get_projects_dir(client.work_dir) / "generated"
+
+    full_prompt = _build_llm_prompt(requirement, schematic_path, datasheet_paths, console)
+
+    project_dir = _generate_code_with_ui(client, full_prompt, out_dir, datasheet_paths, console)
+
+    if not project_dir:
+        return 1
+
+    # 8. 编译
+    console.print("\n[bold cyan]Step 6: Build[/bold cyan]")
+    elf = _build_with_ui(client, project_dir, full_prompt, console)
+
+    if not elf:
+        console.print(
+            create_error_panel(
+                "Build failed. Please check the code manually.",
+                suggestions=[
+                    f"Project location: {project_dir}",
+                    "Check main.c for syntax errors",
+                    "Run 'stloop check' to verify toolchain",
+                ],
+            )
+        )
+        return 1
+
+    # 9. 部署选择：真实硬件烧录 或 Renode 仿真
+    console.print("\n[bold cyan]Step 7: Deploy & Test[/bold cyan]")
+    console.print("[dim]Choose how to run your firmware:[/dim]")
+    console.print("  1. Flash to real hardware (requires ST-Link)")
+    console.print("  2. Simulate with Renode (no hardware needed)")
+    console.print("  3. Skip (build only)")
+
+    deploy_choice = Prompt.ask(
+        "[cyan]Select option[/cyan]",
+        choices=["1", "2", "3"],
+        default="2",
+    )
+
+    if deploy_choice == "1":
+        # 烧录到真实硬件
+        flash_success = _flash_with_ui(client, elf, console)
+        if flash_success:
+            console.print(
+                create_success_panel(
+                    "Flash completed! Firmware is running on the device.",
+                    details={
+                        "Project": str(project_dir),
+                        "ELF": str(elf),
+                    },
+                )
+            )
+            # 串口监控
+            if Confirm.ask(
+                "\n[cyan]Start Serial Monitor to view device output?[/cyan]",
+                default=False,
+            ):
+                _start_serial_monitor_ui(console)
+        else:
+            console.print(f"[yellow][!] You can flash later with:[/yellow]")
+            console.print(f"  stloop build {project_dir} --flash")
+
+    elif deploy_choice == "2":
+        # Renode 仿真
+        _run_renode_simulation_ui(elf, client.target or "stm32f411re", console)
+
+    else:
+        # 跳过
+        console.print(f"[dim]Skipped. You can run later with:[/dim]")
+        console.print(f"  [cyan]stloop sim {elf}[/cyan]")
+        console.print(f"  [cyan]stloop build {project_dir} --flash[/cyan]")
+
+    return 0
+
+
+def _run_renode_simulation_ui(elf_path: Path, mcu: str, console: Console) -> None:
+    """
+    运行 Renode 仿真 UI
+
+    Args:
+        elf_path: ELF 文件路径
+        mcu: MCU 型号
+        console: Console 实例
+    """
+    from .simulators import RenodeSimulator, generate_resc_script, get_platform_file
+
+    render_header("Renode Simulation", subtitle=mcu.upper())
+
+    # 检查 Renode 是否安装
+    sim = RenodeSimulator()
+    if not sim.is_installed():
+        console.print("[red][X] Renode not found[/red]")
+        console.print("")
+        console.print("[cyan]Installation options:[/cyan]")
+        console.print("  1. Official package: https://renode.io/#downloads")
+        console.print("  2. Build from source: git clone https://github.com/renode/renode.git")
+        console.print("")
+        console.print("[dim]After installation, make sure 'renode' command is in your PATH.[/dim]")
+        return
+
+    console.print("[green][OK] Renode found[/green]")
+
+    # 检查 MCU 支持
+    platform = get_platform_file(mcu)
+    if platform:
+        console.print(f"[green][OK] Platform: {platform}[/green]")
+    else:
+        console.print(f"[yellow][!] Unknown MCU: {mcu}, using generic STM32F4[/yellow]")
+
+    # 生成配置和脚本
+    config = type(
+        "Config",
+        (),
+        {
+            "mcu": mcu,
+            "gdb_port": 3333,
+            "telnet_port": 1234,
+            "pause_on_startup": False,
+            "show_gui": True,
+            "enable_uart": True,
+        },
+    )()
+
+    resc_script = generate_resc_script(elf_path, mcu=mcu, config=config)
+    console.print(f"[green][OK] Generated: {resc_script.name}[/green]")
+
+    # 启动选项
+    console.print("")
+    console.print("[cyan]Starting simulation...[/cyan]")
+    console.print("[dim]Options:[/dim]")
+    console.print("  - UART output will be shown in terminal")
+    console.print("  - GDB server on port 3333")
+    console.print("  - Press Ctrl+C to stop")
+    console.print("")
+
+    try:
+        # 启动仿真（阻塞模式）
+        result = sim.start(elf_path, mcu=mcu, config=config, blocking=True, timeout=60)
+
+        if result:
+            console.print("[green][OK] Simulation completed successfully[/green]")
+        else:
+            console.print("[yellow][!] Simulation ended[/yellow]")
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow][!] Simulation interrupted by user[/yellow]")
+        sim.stop()
+    except Exception as e:
+        console.print(f"[red][X] Simulation error: {e}[/red]")
+
+
+def _start_serial_monitor_ui(console: Console) -> None:
+    """
+    启动串口监控 UI
+
+    提供串口选择并启动实时监控。
+    """
+    # 列出可用串口
+    ports = SerialMonitor.list_ports()
+
+    if not ports:
+        console.print("[yellow][!] No serial ports found[/yellow]")
+        console.print("[dim]Connect your device and try again.[/dim]")
+        return
+
+    # 显示可用串口
+    console.print("\n[bold cyan]Available Serial Ports:[/bold cyan]")
+    for i, port in enumerate(ports, 1):
+        console.print(f"  {i}. [green]{port['device']}[/green] - {port['description']}")
+
+    # 选择串口
+    port_idx = Prompt.ask(
+        "[cyan]Select port (number)[/cyan]",
+        default="1",
+    )
+
+    try:
+        idx = int(port_idx) - 1
+        if 0 <= idx < len(ports):
+            selected_port = ports[idx]["device"]
+        else:
+            console.print("[red][X] Invalid selection[/red]")
+            return
+    except ValueError:
+        console.print("[red][X] Invalid input[/red]")
+        return
+
+    # 选择波特率
+    baudrate = Prompt.ask(
+        "[cyan]Baudrate[/cyan]",
+        default="115200",
+        choices=["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"],
+    )
+
+    # 启动监控
+    monitor = SerialMonitor(console)
+
+    if monitor.connect(selected_port, int(baudrate)):
+        console.print(f"[green][OK] Connected to {selected_port} @ {baudrate} baud[/green]")
+        console.print("[dim]Press Ctrl+C to stop monitoring[/dim]\n")
+
+        try:
+            monitor.start_live(refresh_rate=10)
+        except KeyboardInterrupt:
+            console.print("\n[yellow][!] Monitoring stopped by user[/yellow]")
+        finally:
+            monitor.disconnect()
+            console.print("[green][OK] Disconnected[/green]")
+    else:
+        console.print(f"[red][X] Failed to connect to {selected_port}[/red]")
+
+
+# 保持向后兼容的别名
+run_interactive = run_interactive_rich
