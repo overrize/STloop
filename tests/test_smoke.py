@@ -170,3 +170,52 @@ def test_gen_writes_chip_config(tmp_path, monkeypatch):
     cfg = (out / "chip_config.cmake").read_text()
     assert "STM32F405xx" in cfg
     assert "f405" in cfg
+
+
+def test_embed_cube_rejects_overlapping_paths(tmp_path):
+    """当 source/dest 存在包含关系时，_embed_cube 应拒绝复制。"""
+    from stloop.client import STLoopClient
+
+    client = STLoopClient(work_dir=tmp_path)
+    source_cube = tmp_path
+    with pytest.raises(ValueError, match="包含关系|非法 cube 复制路径"):
+        client._embed_cube(tmp_path, source_cube)
+
+
+def test_build_fix_policy_routes_infra_and_code_errors():
+    """自动修复策略：基础设施错误跳过，代码错误允许修复。"""
+    from stloop.build_fix_policy import should_attempt_main_c_fix
+
+    can_fix, _ = should_attempt_main_c_fix("No linker script .ld in project dir")
+    assert can_fix is False
+
+    can_fix, _ = should_attempt_main_c_fix("src/main.c:42:10: error: unknown type name")
+    assert can_fix is True
+
+
+def test_gen_writes_project_spec_and_augments_prompt(tmp_path, monkeypatch):
+    """gen 应写入 project_spec.json，并把结构化约束拼入 LLM 提示。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    from unittest.mock import patch
+
+    from stloop.client import STLoopClient
+
+    captured_prompt = {"text": ""}
+
+    def _fake_generate_main_c(prompt: str, **kwargs):
+        captured_prompt["text"] = prompt
+        return "int main() { return 0; }"
+
+    with patch("stloop.client.generate_main_c", side_effect=_fake_generate_main_c):
+        client = STLoopClient(work_dir=tmp_path)
+        out = client.gen(
+            "STM32F405 BMI088 SPI 读取并串口输出",
+            tmp_path / "proj2",
+            embed_cube=False,
+        )
+
+    spec_text = (out / "project_spec.json").read_text(encoding="utf-8")
+    assert "STM32F405xx" in spec_text
+    assert "BMI088" in spec_text
+    assert "spi" in spec_text.lower()
+    assert "【结构化约束（必须遵守）】" in captured_prompt["text"]

@@ -1,0 +1,10 @@
+{
+  "mcu_device": "STM32F411xE",
+  "startup_pattern": "f411",
+  "linker_pattern": "F411",
+  "peripherals": [
+    "uart"
+  ],
+  "sensor": null,
+  "requirement": "USART2 configured for 115200 baud"
+}

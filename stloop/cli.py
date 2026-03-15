@@ -61,6 +61,12 @@ def main() -> int:
     p_build.add_argument("--flash", action="store_true")
     p_build.set_defaults(func=_cmd_build)
 
+    # validate
+    p_validate = sub.add_parser("validate", help="真实世界验证（串口、JTAG、逻辑分析仪、示波器）")
+    p_validate.add_argument("--port", type=str, default="", help="串口，如 COM3")
+    p_validate.add_argument("--no-run", action="store_true", help="仅显示验证界面，不运行测试")
+    p_validate.set_defaults(func=_cmd_validate)
+
     args = parser.parse_args()
     if getattr(args, "verbose", False):
         logging.getLogger("stloop").setLevel(logging.DEBUG)
@@ -71,7 +77,7 @@ def main() -> int:
         args.output = None
     client = STLoopClient(work_dir=args.work_dir)
     # 启动后自动校验工具链（除 check、cube-download、仅 gen 不编译外）
-    if args.cmd not in ("check", "cube-download") and not (args.cmd == "gen" and not getattr(args, "build", False)):
+    if args.cmd not in ("check", "cube-download", "validate") and not (args.cmd == "gen" and not getattr(args, "build", False)):
         try:
             from .builder import TOOLCHAIN_HINT, ensure_toolchain
             ensure_toolchain()
@@ -86,6 +92,21 @@ def _cmd_chat(client: STLoopClient, args) -> int:
     return run_interactive(client, output_dir=getattr(args, "output", None))
 
 
+def _cmd_validate(client: STLoopClient, args) -> int:
+    """真实世界验证（简单版，无 Rich 时使用）"""
+    try:
+        from .ui.validation_view import ValidationView, ValidationChannel, ValidationStatus
+        view = ValidationView()
+        view.set_status(ValidationStatus.TESTING)
+        view.set_active_channel(ValidationChannel.SERIAL)
+        view.append_log("Real-World Validation UI (use Rich CLI for full view).", ValidationChannel.SERIAL)
+        view.print_once()
+    except ImportError:
+        print("[stloop] validate requires rich: pip install rich")
+        return 1
+    return 0
+
+
 def _cmd_demo(client: STLoopClient, args) -> int:
     if args.scenario == "blink":
         elf = client.demo_blink(flash=args.flash, test=args.test)
@@ -96,6 +117,7 @@ def _cmd_demo(client: STLoopClient, args) -> int:
 
 def _cmd_gen(client: STLoopClient, args) -> int:
     from . import _paths
+    from .build_fix_policy import should_attempt_main_c_fix
     from .llm_client import generate_main_c_fix
 
     output = args.output or _paths.get_projects_dir(client.work_dir) / "generated"
@@ -116,6 +138,10 @@ def _cmd_gen(client: STLoopClient, args) -> int:
                 err_msg = str(getattr(e, "__cause__", e) or e)
                 print(f"编译失败: {err_msg[:500]}{'...' if len(err_msg) > 500 else ''}")
                 if attempt < max_fix_rounds:
+                    can_fix, reason = should_attempt_main_c_fix(err_msg)
+                    if not can_fix:
+                        print(f"  [修复] 跳过自动 main.c 修复：{reason}")
+                        return 1
                     try:
                         main_c = (out / "src" / "main.c").read_text(encoding="utf-8")
                         fixed = generate_main_c_fix(args.prompt, main_c, err_msg, work_dir=client.work_dir)

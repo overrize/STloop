@@ -275,15 +275,50 @@ def _prompt_datasheets(console: Console) -> List[Path]:
 
 
 def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
-    """确保 Cube 已下载，带 UI 反馈"""
-    with create_spinner("Checking STM32Cube dependencies..."):
+    """确保 Cube 已就绪，带 UI 反馈和自动检测"""
+
+    # 先检查本地 Cube 路径是否有效
+    if client.cube_path.exists() and (client.cube_path / "Drivers").exists():
+        console.print(f"[green][OK] STM32Cube ready: {client.cube_path}[/green]")
+        return True
+
+    # 尝试自动检测本地安装
+    local_cube = client._detect_local_cube()
+
+    if local_cube:
+        console.print(f"\n[>] Detected local STM32CubeF4:")
+        console.print(f"   {local_cube}")
+
+        if Confirm.ask("\n[>] Use this path?", default=True):
+            client.cube_path = local_cube
+            console.print(f"[green][OK] Using local STM32Cube: {local_cube}[/green]")
+            return True
+        else:
+            # 用户拒绝，询问自定义路径
+            custom = Prompt.ask(
+                "[>] Enter custom path (or 'download' to auto-download)", default="download"
+            )
+            if custom.lower() != "download":
+                custom_path = Path(custom).expanduser()
+                if custom_path.exists() and (custom_path / "Drivers").exists():
+                    client.cube_path = custom_path
+                    console.print(f"[green][OK] Using: {custom_path}[/green]")
+                    return True
+                else:
+                    console.print(f"[yellow][!] Invalid path, will download instead[/yellow]")
+
+    # 下载 Cube
+    console.print("\n[>] STM32CubeF4 not found locally")
+    console.print("[dim]Downloading from GitHub...[/dim]")
+
+    with create_spinner("Downloading STM32CubeF4..."):
         try:
-            cube = client.ensure_cube()
+            cube = client.ensure_cube(interactive=False)
             console.print(f"[green][OK] STM32Cube ready: {cube}[/green]")
             return True
         except RuntimeError as e:
-            log.exception("Dependency preparation failed")
-            console.print(f"\n[red][X] Dependency preparation failed: {e}[/red]")
+            log.exception("Download failed")
+            console.print(f"\n[red][X] Download failed: {e}[/red]")
 
             from .scripts.download_cube import DOWNLOAD_FAIL_HINT
 
@@ -295,7 +330,7 @@ def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
                 )
             )
 
-            if Confirm.ask("[cyan]Retry?[/cyan]", default=True):
+            if Confirm.ask("[>] Retry download?", default=True):
                 return _ensure_cube_with_ui(client, console)
             return False
 
@@ -422,6 +457,17 @@ def _build_with_ui(
     return None
 
 
+def _detect_debug_probe() -> bool:
+    """检测是否连接了调试器 (ST-Link, J-Link, DAPLink 等)"""
+    try:
+        from pyocd.core.helpers import ConnectHelper
+
+        probes = ConnectHelper.get_all_connected_probes()
+        return len(probes) > 0
+    except Exception:
+        return False
+
+
 def _flash_with_ui(client: STLoopClient, elf_path: Path, console: Console) -> bool:
     """烧录固件，带 UI 反馈"""
     console.print("\n[bold cyan]Flashing firmware...[/bold cyan]")
@@ -537,18 +583,36 @@ def run_interactive_rich(
         )
         return 1
 
-    # 9. 部署选择：真实硬件烧录 或 Renode 仿真
+    # 9. 部署选择：自动检测硬件或提供智能选项
     console.print("\n[bold cyan]Step 7: Deploy & Test[/bold cyan]")
-    console.print("[dim]Choose how to run your firmware:[/dim]")
-    console.print("  1. Flash to real hardware (requires ST-Link)")
-    console.print("  2. Simulate with Renode (no hardware needed)")
-    console.print("  3. Skip (build only)")
 
-    deploy_choice = Prompt.ask(
-        "[cyan]Select option[/cyan]",
-        choices=["1", "2", "3"],
-        default="2",
-    )
+    # 检测硬件连接
+    has_probe = _detect_debug_probe()
+
+    if has_probe:
+        console.print("[green][OK] Debug probe detected (ST-Link/J-Link)[/green]")
+        console.print("[dim]Choose deployment method:[/dim]")
+        console.print("  1. Flash to hardware (use ST-Link)")
+        console.print("  2. Simulate with Renode (no hardware needed)")
+        console.print("  3. Skip")
+
+        deploy_choice = Prompt.ask(
+            "[>] Select",
+            choices=["1", "2", "3"],
+            default="1",
+        )
+    else:
+        console.print("[yellow][!] No debug probe detected[/yellow]")
+        console.print("[dim]Choose deployment method:[/dim]")
+        console.print("  1. Flash to hardware (requires ST-Link)")
+        console.print("  2. Simulate with Renode [Recommended - no hardware needed]")
+        console.print("  3. Skip")
+
+        deploy_choice = Prompt.ask(
+            "[>] Select",
+            choices=["1", "2", "3"],
+            default="2",
+        )
 
     if deploy_choice == "1":
         # 烧录到真实硬件
@@ -565,13 +629,16 @@ def run_interactive_rich(
             )
             # 串口监控
             if Confirm.ask(
-                "\n[cyan]Start Serial Monitor to view device output?[/cyan]",
+                "\n[>] Start Serial Monitor to view device output?",
                 default=False,
             ):
                 _start_serial_monitor_ui(console)
         else:
-            console.print(f"[yellow][!] You can flash later with:[/yellow]")
-            console.print(f"  stloop build {project_dir} --flash")
+            console.print(f"[yellow][!] Flash failed. You can try:[/yellow]")
+            console.print(f"  [cyan]stloop build {project_dir} --flash[/cyan]")
+            # 烧录失败后询问是否切换到仿真
+            if Confirm.ask("\n[>] Try Renode simulation instead?", default=True):
+                _run_renode_simulation_ui(elf, client.target or "stm32f411re", console)
 
     elif deploy_choice == "2":
         # Renode 仿真

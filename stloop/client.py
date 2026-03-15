@@ -2,6 +2,7 @@
 STLoopClient — 可编程 API
 支持 CLI 与 Python 脚本调用
 """
+
 import logging
 import shutil
 from pathlib import Path
@@ -12,9 +13,19 @@ from .builder import build as _build
 from .flasher import flash as _flash
 from .linker_gen import generate_linker_script
 from .llm_client import generate_main_c
+from .project_spec import build_project_spec, write_project_spec
 from .tester import run_with_probe
 
 log = logging.getLogger("stloop")
+
+
+def _is_subpath(child: Path, parent: Path) -> bool:
+    """Return True when child is inside parent."""
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
 
 
 class STLoopClient:
@@ -38,11 +49,101 @@ class STLoopClient:
         self.cube_path = Path(cube_path) if cube_path else self.work_dir / "cube" / "STM32CubeF4"
         self.target = target
 
-    def ensure_cube(self) -> Path:
-        """确保 STM32CubeF4 存在，不存在则下载。失败时抛出 RuntimeError"""
+    def _detect_local_cube(self) -> Optional[Path]:
+        """自动检测本地安装的 STM32CubeF4"""
+        import os
+        import platform
+
+        # 常见安装路径
+        system = platform.system()
+        common_paths = []
+
+        if system == "Windows":
+            # Windows 常见路径
+            common_paths = [
+                Path("C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeF4"),
+                Path("C:/STM32Cube/STM32CubeF4"),
+                Path.home() / "STM32Cube" / "STM32CubeF4",
+                Path.home() / "st" / "STM32CubeF4",
+            ]
+            # 检查环境变量
+            if "STM32Cube_F4_PATH" in os.environ:
+                common_paths.insert(0, Path(os.environ["STM32Cube_F4_PATH"]))
+        elif system == "Darwin":  # macOS
+            common_paths = [
+                Path("/opt/STM32CubeF4"),
+                Path.home() / "STM32Cube" / "STM32CubeF4",
+                Path("/Applications/STM32CubeMX/STM32CubeF4"),
+            ]
+        else:  # Linux
+            common_paths = [
+                Path("/opt/STM32CubeF4"),
+                Path("/usr/local/STM32CubeF4"),
+                Path.home() / "STM32Cube" / "STM32CubeF4",
+            ]
+
+        # 检测 CubeMX 包路径
+        cubemx_paths = []
+        if system == "Windows":
+            cubemx_base = Path.home() / "STM32Cube" / "Repository" / "STM32Cube_FW_F4"
+            if cubemx_base.exists():
+                cubemx_paths.append(cubemx_base)
+
+        all_paths = common_paths + cubemx_paths
+
+        for path in all_paths:
+            if path.exists() and (path / "Drivers").exists():
+                log.info("检测到本地 STM32CubeF4: %s", path)
+                return path
+
+        return None
+
+    def ensure_cube(self, interactive: bool = True) -> Path:
+        """
+        确保 STM32CubeF4 存在
+
+        Args:
+            interactive: 是否交互式询问用户
+
+        Returns:
+            cube_path: STM32CubeF4 路径
+        """
         log.debug("ensure_cube: %s", self.cube_path)
+
+        # 检查当前路径是否有效
+        if self.cube_path.exists() and (self.cube_path / "Drivers").exists():
+            log.info("使用已配置的 STM32CubeF4: %s", self.cube_path)
+            return self.cube_path
+
+        # 尝试自动检测本地安装
+        local_cube = self._detect_local_cube()
+
+        if local_cube and interactive:
+            print(f"\n[>] 检测到本地 STM32CubeF4:")
+            print(f"   {local_cube}")
+            response = input("\n[?] 使用此路径? (Y/n/custom path): ").strip()
+
+            if response.lower() in ("", "y", "yes"):
+                self.cube_path = local_cube
+                return local_cube
+            elif response.lower() not in ("n", "no"):
+                # 用户输入了自定义路径
+                custom_path = Path(response).expanduser()
+                if custom_path.exists() and (custom_path / "Drivers").exists():
+                    self.cube_path = custom_path
+                    return custom_path
+                else:
+                    print(f"[!] 路径无效或缺少 Drivers 目录: {custom_path}")
+        elif local_cube:
+            # 非交互模式，直接使用检测到的路径
+            self.cube_path = local_cube
+            return local_cube
+
+        # 本地未找到，尝试下载
         from .scripts.download_cube import download_cube
 
+        print("\n[!] 未检测到本地 STM32CubeF4")
+        print("[>] 正在自动下载...")
         self.cube_path = download_cube(self.cube_path, raise_on_fail=True)
         return self.cube_path
 
@@ -69,7 +170,18 @@ class STLoopClient:
         """将 cube 库复制到项目内，使项目自包含。与 CubeMX 一致：lib 每次更新，确保使用最新驱动。"""
         dest = project_dir / "cube" / "STM32CubeF4"
         cube_path = Path(cube_path).resolve()
+        dest_resolved = dest.resolve()
         log.info("_embed_cube: 源=%s, 目标=%s", cube_path, dest)
+
+        # 避免源/目标存在包含关系，导致 copytree 递归或污染
+        if (
+            dest_resolved == cube_path
+            or _is_subpath(dest_resolved, cube_path)
+            or _is_subpath(cube_path, dest_resolved)
+        ):
+            raise ValueError(
+                f"非法 cube 复制路径: source={cube_path}, dest={dest_resolved}，两者存在包含关系"
+            )
 
         dest.parent.mkdir(parents=True, exist_ok=True)
         print("  [生成] 更新 cube 库到项目（lib 保持最新）...")
@@ -86,11 +198,20 @@ class STLoopClient:
         """把 .ld 和 startup_*.s 从 cube 复制到工程目录（与 src 同级），便于 CMake 优先使用。"""
         project_dir = Path(project_dir)
         cube_root = Path(cube_root)
-        log.info("_ensure_linker_startup_in_project: 工程=%s, cube=%s, startup_pat=%s, linker_pat=%s",
-                 project_dir, cube_root, startup_pat, linker_pat)
+        log.info(
+            "_ensure_linker_startup_in_project: 工程=%s, cube=%s, startup_pat=%s, linker_pat=%s",
+            project_dir,
+            cube_root,
+            startup_pat,
+            linker_pat,
+        )
 
         # 在 cube 中找匹配的 .ld（先 Projects，再 Drivers）
-        ld_candidates = list((cube_root / "Projects").rglob("*.ld")) if (cube_root / "Projects").exists() else []
+        ld_candidates = (
+            list((cube_root / "Projects").rglob("*.ld"))
+            if (cube_root / "Projects").exists()
+            else []
+        )
         if not ld_candidates:
             ld_candidates = list((cube_root / "Drivers").rglob("*.ld"))
         ld_file = None
@@ -102,7 +223,9 @@ class STLoopClient:
             ld_file = ld_candidates[0]
         if ld_file:
             dest_ld = project_dir / ld_file.name
-            if dest_ld != ld_file and (not dest_ld.exists() or dest_ld.stat().st_mtime < ld_file.stat().st_mtime):
+            if dest_ld != ld_file and (
+                not dest_ld.exists() or dest_ld.stat().st_mtime < ld_file.stat().st_mtime
+            ):
                 shutil.copy2(ld_file, dest_ld)
                 log.info("复制 linker: %s -> %s", ld_file, dest_ld)
                 print(f"  [生成] 复制链接脚本: {ld_file.name} -> 工程目录")
@@ -121,7 +244,11 @@ class STLoopClient:
             all_startup = list((cube_root / "Drivers").rglob("startup_stm32*.s"))
         # 优先 gcc/ 目录（GNU 汇编器），排除 arm/（ARM/Keil 语法）
         gcc_startups = [p for p in all_startup if "gcc" in p.parts]
-        startup_list = gcc_startups if gcc_startups else [p for p in all_startup if "arm" not in p.parts] or all_startup
+        startup_list = (
+            gcc_startups
+            if gcc_startups
+            else [p for p in all_startup if "arm" not in p.parts] or all_startup
+        )
         startup_file = None
         for p in startup_list:
             if startup_pat.lower() in p.name.lower():
@@ -131,7 +258,10 @@ class STLoopClient:
             startup_file = startup_list[0]
         if startup_file:
             dest_startup = project_dir / startup_file.name
-            if dest_startup != startup_file and (not dest_startup.exists() or dest_startup.stat().st_mtime < startup_file.stat().st_mtime):
+            if dest_startup != startup_file and (
+                not dest_startup.exists()
+                or dest_startup.stat().st_mtime < startup_file.stat().st_mtime
+            ):
                 shutil.copy2(startup_file, dest_startup)
                 log.info("复制 startup: %s -> %s", startup_file, dest_startup)
                 print(f"  [生成] 复制启动文件: {startup_file.name} -> 工程目录")
@@ -169,7 +299,11 @@ class STLoopClient:
         probe_id: Optional[str] = None,
     ) -> bool:
         """烧录固件到设备"""
-        path = self.work_dir / firmware_path if not Path(firmware_path).is_absolute() else Path(firmware_path)
+        path = (
+            self.work_dir / firmware_path
+            if not Path(firmware_path).is_absolute()
+            else Path(firmware_path)
+        )
         return _flash(path, probe_id=probe_id, target_override=self.target)
 
     def test(
@@ -196,11 +330,14 @@ class STLoopClient:
         datasheet_paths 用于从手册文件名推断目标芯片，动态配置 startup/linker。
         返回输出目录路径。
         """
-        from .chip_config import infer_chip
-
         out = self.work_dir / output_dir if not Path(output_dir).is_absolute() else Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        mcu_device, startup_pat, linker_pat = infer_chip(prompt=prompt, datasheet_paths=datasheet_paths)
+        spec = build_project_spec(prompt, datasheet_paths=datasheet_paths)
+        mcu_device, startup_pat, linker_pat = (
+            spec.mcu_device,
+            spec.startup_pattern,
+            spec.linker_pattern,
+        )
         log.info("推断芯片: MCU_DEVICE=%s", mcu_device)
         print(f"  [生成] 推断芯片: {mcu_device}")
         (out / "chip_config.cmake").write_text(
@@ -209,8 +346,10 @@ class STLoopClient:
             f"set(LINKER_PATTERN {linker_pat})\n",
             encoding="utf-8",
         )
+        write_project_spec(out / "project_spec.json", spec)
+        prompt_for_llm = f"{prompt}{spec.to_prompt_block()}"
         main_c = generate_main_c(
-            prompt,
+            prompt_for_llm,
             api_key=api_key,
             base_url=base_url,
             model=model,
@@ -253,7 +392,9 @@ class STLoopClient:
         if not (project_dir / "CMakeLists.txt").exists():
             self._copy_template(project_dir)
         # 与 gen 一致：build 前确保 linker/startup 在工程目录（demo 默认 F411）
-        self._ensure_linker_startup_in_project(project_dir, cube, startup_pat="f411", linker_pat="F411")
+        self._ensure_linker_startup_in_project(
+            project_dir, cube, startup_pat="f411", linker_pat="F411"
+        )
         elf = self.build(project_dir, cube_path=cube)
         if flash:
             self.flash(elf)

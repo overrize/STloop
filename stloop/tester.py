@@ -1,4 +1,5 @@
 """pyOCD 自动化测试模块"""
+import time
 from pathlib import Path
 from typing import Optional, Callable
 
@@ -38,7 +39,11 @@ def run_with_probe(
         return True
 
 
-def test_breakpoint_at_main(elf_path: Path, target_override: str = "stm32f411re") -> bool:
+def test_breakpoint_at_main(
+    elf_path: Path,
+    target_override: str = "stm32f411re",
+    max_wait_seconds: float = 5.0,
+) -> bool:
     """验证程序能在 main 处停下（断点测试）"""
     if ConnectHelper is None:
         return False
@@ -54,8 +59,12 @@ def test_breakpoint_at_main(elf_path: Path, target_override: str = "stm32f411re"
             return False
         target.set_breakpoint(main_addr)
         target.reset()
+        deadline = time.monotonic() + max_wait_seconds
         while target.get_state() != Target.State.HALTED:
-            pass
+            if time.monotonic() > deadline:
+                target.remove_breakpoint(main_addr)
+                return False
+            time.sleep(0.01)
         pc = target.read_core_register("pc")
         target.remove_breakpoint(main_addr)
         return (pc & ~0x01) == (main_addr & ~0x01)
