@@ -1,103 +1,183 @@
-# STLoop — STM32 自然语言端到端开发
+# STLoop — STM32 AI Firmware Engineer
 
-基于 LL 库 + CMake + pyOCD 的嵌入式开发 Client，通过自然语言描述需求，由大模型生成代码、自动编译、烧录、调试与测试。
-
-## 能力概览
-
-- **编码**：STM32 LL 库 + CMake 工程
-- **编译**：CMake + arm-none-eabi-gcc
-- **烧录/调试**：pyOCD
-- **自动化测试**：pyOCD Python API
-- **目标**：具备初级工程师的验证能力，快速验证硬件设计
-
-## 前置条件
-
-- Python 3.10+
-- [arm-none-eabi-gcc](https://developer.arm.com/downloads/-/gnu-rm)
-- [CMake](https://cmake.org/) 3.15+
-- [pyOCD](https://pyocd.io/) + ST-Link 调试器
-- STM32CubeF4 软件包（或通过 `python -m stloop cube-download` 自动下载）
+自然语言驱动 STM32 固件开发。描述需求 → AI 生成代码 → 自动编译 → 烧录/仿真 → 验证测试。
 
 ## 快速开始
 
 ```bash
-# 1. 安装 Client（推荐）
+# 安装
 pip install -e .
 
-# 可选：支持原理图/芯片手册 PDF 解析
-pip install -e ".[pdf]"
+# 配置 API (复制 .env.example → .env)
+OPENAI_API_KEY=sk-xxx
+OPENAI_API_BASE=https://api.moonshot.cn/v1  # Kimi
 
-# 2. 运行（推荐使用 python -m，避免 PATH 问题）
-python -m stloop              # 交互式终端
-python -m stloop demo blink   # Demo
-python -m stloop demo blink --flash
+# 启动交互式开发
+python -m stloop
 ```
 
-> **说明**：若直接输入 `stloop` 提示找不到命令，请使用 `python -m stloop`。Windows 下 Scripts 目录可能不在 PATH 中。
+## 核心功能
 
-## 大模型配置（chat / gen 需要）
+| 功能 | 命令 |
+|------|------|
+| 交互式开发 | `python -m stloop` |
+| 生成+编译+烧录 | `stloop gen "PA5 LED闪烁" --build --flash` |
+| 硬件仿真 (无需硬件) | `stloop gen "PA5 LED闪烁" --build --sim` |
+| 硬件目录 | `stloop catalog` |
+| 环境检查 | `stloop check` |
+| 串口监控 | `stloop monitor` |
 
-交互式生成代码前需配置 API。复制 `.env.example` 为 `.env` 并填入。
-
-**Kimi K2**（推荐，见 [官方文档](https://platform.moonshot.cn/docs/guide/agent-support)）：
+## 前置依赖
 
 ```bash
-OPENAI_API_KEY=sk-xxx
-OPENAI_API_BASE=https://api.moonshot.cn/v1
-OPENAI_MODEL=kimi-k2-0905-preview   # 或 kimi-k2-turbo-preview
+# 必需: 编译工具链
+arm-none-eabi-gcc  # https://developer.arm.com/downloads/-/gnu-rm
+cmake >= 3.15
+
+# 可选: 烧录调试
+pyocd  # pip install pyocd
+
+# 可选: 硬件仿真
+renode  # https://renode.io (已内置 STM32F4 支持)
 ```
 
-**OpenAI**：`OPENAI_API_KEY=sk-xxx` 即可。
+## 使用示例
 
-支持任意兼容 OpenAI 格式的 API。未配置时运行 `python -m stloop` 会显示完整配置说明。
+### 1. 交互式开发 (推荐)
+```bash
+$ python -m stloop
+
+Step 1: Hardware Selection
+Available MCUs: STM32F411RE, STM32F407VG, STM32F446RE, ESP32-S3...
+Select MCU (number): 1
+
+Step 2: Requirement
+Your requirement: PA5 LED blink 1Hz
+
+Step 3: Additional Resources (Optional)
+Schematic path (Enter to skip): 
+Datasheet PDFs (comma-separated, Enter to skip): 
+
+Step 4: Preparing Dependencies
+[OK] STM32CubeF4 found
+
+Step 5: Code Generation
+Generating code...
+[OK] Code generated at: projects/generated/
+
+Step 6: Build
+Building with CMake...
+[OK] Build successful: build/firmware.elf
+
+Step 7: Deploy & Test
+Choose how to run your firmware:
+  1. Flash to real hardware (requires ST-Link)
+  2. Simulate with Renode (no hardware needed)  <-- 默认
+  3. Skip (build only)
+Select option [2]: 
+
+[OK] Renode found
+[OK] Platform: platforms/cpus/stm32f411.repl
+[OK] Generated: simulation.resc
+Starting simulation...
+[OK] Simulation completed successfully
+```
+
+### 2. 一键生成+烧录
+```bash
+# 生成、编译、烧录到硬件
+stloop gen "UART1 echo at 115200" --build --flash
+
+# 烧录后启动串口监控
+stloop gen "ADC read PA0" --build --flash --monitor
+```
+
+### 3. 硬件仿真 (无需物理硬件)
+```bash
+# 生成、编译、仿真
+stloop gen "TIM2 PWM PA5 1kHz" --build --sim --mcu STM32F411RE
+
+# 单独仿真已有固件
+stloop sim build/firmware.elf --mcu STM32F407VG --gui
+
+# 查看支持的 MCU
+stloop sim --mcu list
+```
+
+## 技术栈
+
+- **代码生成**: LLM (Kimi/OpenAI/兼容 OpenAI API)
+- **HAL 库**: STM32 LL 库 (Low Layer)
+- **构建系统**: CMake + arm-none-eabi-gcc
+- **烧录调试**: pyOCD + ST-Link
+- **硬件仿真**: Renode (STM32F4 系列)
+- **串口监控**: pyserial
+
+## 支持的 MCU
+
+| 系列 | 型号 | 状态 |
+|------|------|------|
+| STM32F4 | F411RE, F407VG, F405RG, F446RE | ✅ 完整支持 |
+| ESP32 | S3, C3 | ✅ 支持 |
+| nRF52 | nRF52840 | ✅ 支持 |
+| RP2040 | Pico | ✅ 支持 |
 
 ## 项目结构
 
 ```
 stloop/
-├── stloop/           # Client 包
-│   ├── client.py     # STLoopClient 可编程 API
-│   ├── cli.py        # CLI 入口
-│   ├── builder.py
-│   ├── flasher.py
-│   ├── tester.py
-│   └── llm_client.py
-├── config/           # 配置文件
-├── templates/        # STM32 CMake + LL 工程模板
-├── demos/            # 预置 Demo
-├── main.py           # 向后兼容入口
-└── pyproject.toml    # 包配置
+├── stloop/
+│   ├── client.py       # 核心 API
+│   ├── cli_rich.py     # 命令行界面
+│   ├── chat_rich.py    # 交互式终端
+│   ├── simulators/     # 硬件仿真 (Renode)
+│   ├── ui/            # 可视化组件
+│   └── hardware/      # MCU 数据库
+├── templates/         # CMake 工程模板
+├── demos/            # 示例项目
+└── docs/            # 文档
 ```
 
-## 可编程 API
+## API 使用
 
 ```python
 from stloop import STLoopClient
 
-client = STLoopClient(work_dir=".")
-client.ensure_cube()
+client = STLoopClient()
+
+# 运行 Demo
 elf = client.demo_blink(flash=True)
-# 或
-elf = client.build("demos/blink")
+
+# 构建项目
+elf = client.build("my_project/")
+
+# 烧录固件
 client.flash(elf)
+
+# 硬件仿真 (无需硬件)
+from stloop.simulators import RenodeSimulator
+sim = RenodeSimulator()
+sim.start(elf, mcu="STM32F411RE")
 ```
 
-## 使用流程
+## 故障排除
 
-1. **提供输入**：原理图、芯片手册、连接调试器
-2. **描述需求**：自然语言（如「PA5 控制 LED 闪烁」）
-3. **大模型分析**：解析需求并生成 LL 库代码
-4. **自动编译**：CMake 构建
-5. **烧录运行**：pyOCD 烧录到设备
-6. **自动化测试**：验证 GPIO/UART 等行为
+```bash
+# 检查环境
+stloop check
 
-## 目标芯片
+# 下载 STM32CubeF4
+stloop cube-download
 
-默认支持 STM32F411RE（Nucleo-F411RE）。可扩展其他 F4 系列。
+# 调试模式
+stloop -v gen "test" --build
+```
 
-## 开发经验
+## 文档
 
-改动与踩坑记录见 [docs/LESSONS.md](docs/LESSONS.md)。
+- [开发经验](docs/LESSONS.md) - 踩坑记录
+- [Renode 仿真计划](docs/RENODE_PLAN.md) - 仿真功能详情
+- [决策清单](docs/DECISION_CHECKLIST.md) - 设计决策
 
 ## License
 
