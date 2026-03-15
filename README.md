@@ -8,13 +8,17 @@
 # 安装
 pip install -e .
 
-# 配置 API (复制 .env.example → .env)
-OPENAI_API_KEY=sk-xxx
-OPENAI_API_BASE=https://api.moonshot.cn/v1  # Kimi
-
-# 启动交互式开发
+# 启动（首次运行会提示配置 API）
 python -m stloop
 ```
+
+**首次启动流程：**
+1. 自动检测 API 配置
+2. 交互式选择 LLM 提供商（Kimi/OpenAI/其他）
+3. 输入 API Key（密码输入，安全隐藏）
+4. 自动保存到 `.env` 文件
+
+无需手动创建配置文件！
 
 ## 核心功能
 
@@ -158,6 +162,31 @@ client.flash(elf)
 from stloop.simulators import RenodeSimulator
 sim = RenodeSimulator()
 sim.start(elf, mcu="STM32F411RE")
+```
+
+## 配置说明
+
+### 自动配置（推荐）
+首次运行 `python -m stloop` 时会自动引导配置。
+
+### 手动配置
+如需手动配置或修改，编辑 `.env` 文件：
+
+```bash
+# Kimi (Moonshot) - 推荐国内用户
+OPENAI_API_KEY=sk-your-key
+OPENAI_API_BASE=https://api.moonshot.cn/v1
+OPENAI_MODEL=kimi-k2-0905-preview
+
+# OpenAI
+OPENAI_API_KEY=sk-your-key
+```
+
+### 环境变量
+也可通过环境变量配置（优先级高于 `.env`）：
+```bash
+export OPENAI_API_KEY=sk-your-key
+export OPENAI_API_BASE=https://api.moonshot.cn/v1
 ```
 
 ## 故障排除

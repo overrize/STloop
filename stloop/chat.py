@@ -2,12 +2,14 @@
 STLoop 交互式终端 — 自然语言端到端流程
 用户输入需求 → 询问原理图/芯片手册 → 生成 → 编译 → 烧录
 """
+
 import logging
 import sys
 from pathlib import Path
 from typing import List, Optional
 
 from .client import STLoopClient
+from .build_fix_policy import should_attempt_main_c_fix
 from .errors import LLMError
 from .llm_client import generate_main_c_fix
 from .llm_config import is_llm_configured
@@ -30,37 +32,69 @@ PROMPT_REQUIREMENT = """
 请描述你的需求（自然语言），例如：PA5 控制 LED 闪烁，500ms 周期
 > """
 
-SETUP_INSTRUCTIONS = """
-┌─────────────────────────────────────────────────────────────────┐
-│  STLoop 需要配置大模型 API 才能生成代码                           │
-├─────────────────────────────────────────────────────────────────┤
-│  方式一：创建 .env 文件（推荐）                                   │
-│  复制 .env.example 为 .env，填入：                                │
-│                                                                  │
-│  # Kimi K2（参考 platform.moonshot.cn/docs/guide/agent-support）  │
-│  OPENAI_API_KEY=sk-xxx                                           │
-│  OPENAI_API_BASE=https://api.moonshot.cn/v1                      │
-│  OPENAI_MODEL=kimi-k2-0905-preview   # 或 kimi-k2-turbo-preview  │
-│                                                                  │
-│  # OpenAI                                                         │
-│  OPENAI_API_KEY=sk-xxx                                           │
-├─────────────────────────────────────────────────────────────────┤
-│  方式二：设置环境变量                                             │
-│  PowerShell: $env:OPENAI_API_KEY="sk-xxx"                        │
-│  Linux/Mac: export OPENAI_API_KEY=sk-xxx                         │
-├─────────────────────────────────────────────────────────────────┤
-│  获取 API Key：                                                  │
-│  • Kimi:   https://platform.moonshot.cn/console/api-keys         │
-│  • OpenAI: https://platform.openai.com/api-keys                  │
-└─────────────────────────────────────────────────────────────────┘
 
-配置完成后重新运行: python -m stloop
+def _interactive_setup() -> bool:
+    """交互式配置向导（简单版）"""
+    print("\n" + "=" * 50)
+    print("  STLoop API Configuration")
+    print("=" * 50)
+    print("\nSelect LLM Provider:")
+    print("  1. Kimi (Moonshot) - Recommended")
+    print("  2. OpenAI")
+    print("  3. Other")
+
+    choice = input("\nSelect (1-3) [1]: ").strip() or "1"
+
+    if choice == "1":
+        provider = "Kimi"
+        base_url = "https://api.moonshot.cn/v1"
+        model = "kimi-k2-0905-preview"
+    elif choice == "2":
+        provider = "OpenAI"
+        base_url = "https://api.openai.com/v1"
+        model = "gpt-4o-mini"
+    else:
+        provider = "Custom"
+        base_url = input("Enter API Base URL: ").strip()
+        model = input("Enter Model: ").strip()
+
+    print(f"\n{provider} Configuration:")
+    api_key = input("Enter API Key: ").strip()
+
+    if not api_key:
+        print("[!] API Key is required")
+        return False
+
+    save = input("\nSave to .env file? (y/n) [y]: ").strip().lower() != "n"
+
+    if save:
+        try:
+            env_path = Path.cwd() / ".env"
+            env_content = f"""# STLoop Configuration
+OPENAI_API_KEY={api_key}
+OPENAI_API_BASE={base_url}
+OPENAI_MODEL={model}
 """
+            env_path.write_text(env_content, encoding="utf-8")
+            print(f"[OK] Saved to {env_path}")
+        except Exception as e:
+            print(f"[!] Failed to save: {e}")
+
+    # 设置当前会话
+    import os
+
+    os.environ["OPENAI_API_KEY"] = api_key
+    os.environ["OPENAI_API_BASE"] = base_url
+    os.environ["OPENAI_MODEL"] = model
+
+    print("[OK] Configuration complete!")
+    return True
 
 
 def _has_pypdf() -> bool:
     try:
         import pypdf  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -123,6 +157,7 @@ def _input_line(prompt: str) -> str:
 def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> int:
     """运行交互式会话"""
     from . import _paths
+
     projects_dir = _paths.get_projects_dir(client.work_dir)
     print("\n" + "=" * 50)
     print("  STLoop — STM32 自然语言端到端开发")
@@ -134,8 +169,9 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
 
     # 初始化时检查 LLM 配置
     if not is_llm_configured(client.work_dir):
-        print(SETUP_INSTRUCTIONS)
-        return 1
+        if not _interactive_setup():
+            print("[!] Configuration cancelled.")
+            return 1
 
     requirement = _input_line(PROMPT_REQUIREMENT)
     if not requirement or requirement.lower() in ("quit", "exit", "q"):
@@ -224,6 +260,10 @@ def run_interactive(client: STLoopClient, output_dir: Optional[Path] = None) -> 
             log.exception("编译失败 (尝试 %d)", attempt + 1)
             print(f"编译失败: {err_msg[:500]}{'...' if len(err_msg) > 500 else ''}")
             if attempt < max_fix_rounds:
+                can_fix, reason = should_attempt_main_c_fix(err_msg)
+                if not can_fix:
+                    print(f"  [修复] 跳过自动 main.c 修复：{reason}")
+                    return 1
                 try:
                     main_c_path = out / "src" / "main.c"
                     current_code = main_c_path.read_text(encoding="utf-8")
