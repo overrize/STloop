@@ -63,12 +63,13 @@ def find_renode_bin() -> Optional[Path]:
 
 
 # STM32 到 Renode 平台的映射
+# 注意：使用 Renode 实际存在的平台文件
 PLATFORM_MAP: Dict[str, str] = {
-    # STM32F4 系列 - CPU
-    "STM32F411RE": "platforms/cpus/stm32f411.repl",
-    "STM32F407VG": "platforms/cpus/stm32f407.repl",
-    "STM32F405RG": "platforms/cpus/stm32f405.repl",
-    "STM32F446RE": "platforms/cpus/stm32f446.repl",
+    # STM32F4 系列 - 使用通用的 stm32f4.repl
+    "STM32F411RE": "platforms/cpus/stm32f4.repl",
+    "STM32F407VG": "platforms/cpus/stm32f4.repl",
+    "STM32F405RG": "platforms/cpus/stm32f4.repl",
+    "STM32F446RE": "platforms/cpus/stm32f4.repl",
     # 开发板
     "NUCLEO_F411RE": "platforms/boards/nucleo_f411re.repl",
     "STM32F4_DISCOVERY": "platforms/boards/stm32f4_discovery.repl",
@@ -98,6 +99,18 @@ def get_platform_file(mcu: str) -> Optional[str]:
     return None
 
 
+def _get_renode_platforms_dir() -> Optional[Path]:
+    """获取 Renode platforms 目录"""
+    bin_path = find_renode_bin()
+    if not bin_path:
+        return None
+    # platforms 目录在 Renode 安装目录下
+    platforms_dir = bin_path.parent.parent / "platforms"
+    if platforms_dir.exists():
+        return platforms_dir
+    return None
+
+
 def generate_resc_script(
     elf_path: Path,
     mcu: str = "STM32F411RE",
@@ -121,25 +134,41 @@ def generate_resc_script(
     if output_path is None:
         output_path = elf_path.parent / "simulation.resc"
 
-    # 获取平台文件
+    # 获取平台文件 - 使用绝对路径
     platform = get_platform_file(mcu)
     if platform is None:
         platform = "platforms/cpus/stm32f4.repl"
 
-    # 生成脚本内容
+    # 转换为绝对路径
+    platforms_dir = _get_renode_platforms_dir()
+    if platforms_dir:
+        platform_file = platforms_dir / platform.replace("platforms/", "").replace("/", os.sep)
+        if platform_file.exists():
+            platform = str(platform_file)
+
+    # 转换 ELF 路径为绝对路径
+    elf_abs_path = Path(elf_path).resolve()
+
+    # Windows 路径需要特殊处理
+    if os.name == "nt":  # Windows
+        # Renode 使用 Python 字符串，需要双反斜杠或正斜杠
+        elf_path_str = str(elf_abs_path).replace("\\", "/")
+    else:
+        elf_path_str = str(elf_abs_path)
+
+    # 生成脚本内容 - 使用正确的 Renode 语法
     script_lines = [
         f"; Renode Simulation Script for {mcu}",
         f"; Firmware: {elf_path.name}",
         "",
-        f"# Set GDB port",
-        f"(machine SetGdbPort {config.gdb_port})",
+        "; Create machine",
+        f'mach create "{mcu}"',
         "",
-        f"# Create machine",
-        f'(mach create "{mcu}")',
-        f"(machine LoadPlatformDescription @{platform})",
+        "; Load platform description",
+        f"machine LoadPlatformDescription @{platform}",
         "",
-        f"# Load firmware",
-        f'(sysbus LoadELF @"{elf_path}")',
+        "; Load firmware",
+        f'sysbus LoadELF "{elf_path_str}"',
     ]
 
     # 添加 UART 支持
@@ -147,9 +176,9 @@ def generate_resc_script(
         script_lines.extend(
             [
                 "",
-                "# Setup UART",
-                '(emulation CreateUartPtyTerminal "term" "/tmp/uart")',
-                "(connector Connect sysbus.usart1 term)",
+                "; Setup UART",
+                'emulation CreateUartPtyTerminal "term" "/tmp/uart"',
+                "connector Connect sysbus.usart1 term",
             ]
         )
 
@@ -157,8 +186,8 @@ def generate_resc_script(
     script_lines.extend(
         [
             "",
-            "# Start simulation",
-            "start" if not config.pause_on_startup else "(machine Pause)",
+            "; Start simulation",
+            "start",
         ]
     )
 
