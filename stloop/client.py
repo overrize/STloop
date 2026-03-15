@@ -62,9 +62,13 @@ class STLoopClient:
             # Windows 常见路径
             common_paths = [
                 Path("C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeF4"),
+                Path("C:/Program Files (x86)/STMicroelectronics/STM32Cube/STM32CubeF4"),
                 Path("C:/STM32Cube/STM32CubeF4"),
+                Path("D:/STM32Cube/STM32CubeF4"),
+                Path("E:/STM32Cube/STM32CubeF4"),
                 Path.home() / "STM32Cube" / "STM32CubeF4",
                 Path.home() / "st" / "STM32CubeF4",
+                Path.home() / "STM32Cube" / "Repository" / "STM32Cube_FW_F4",
             ]
             # 检查环境变量
             if "STM32Cube_F4_PATH" in os.environ:
@@ -73,28 +77,29 @@ class STLoopClient:
             common_paths = [
                 Path("/opt/STM32CubeF4"),
                 Path.home() / "STM32Cube" / "STM32CubeF4",
-                Path("/Applications/STM32CubeMX/STM32CubeF4"),
+                Path.home() / "STM32Cube" / "Repository" / "STM32Cube_FW_F4",
+                Path("/Applications/STM32CubeMX"),
+                Path("/Applications/STMicroelectronics/STM32CubeF4"),
             ]
         else:  # Linux
             common_paths = [
                 Path("/opt/STM32CubeF4"),
                 Path("/usr/local/STM32CubeF4"),
                 Path.home() / "STM32Cube" / "STM32CubeF4",
+                Path.home() / "STM32Cube" / "Repository" / "STM32Cube_FW_F4",
+                Path("/opt/st/STM32CubeF4"),
             ]
 
-        # 检测 CubeMX 包路径
-        cubemx_paths = []
-        if system == "Windows":
-            cubemx_base = Path.home() / "STM32Cube" / "Repository" / "STM32Cube_FW_F4"
-            if cubemx_base.exists():
-                cubemx_paths.append(cubemx_base)
+        log.debug("检测路径: %s", [str(p) for p in common_paths])
 
-        all_paths = common_paths + cubemx_paths
-
-        for path in all_paths:
-            if path.exists() and (path / "Drivers").exists():
-                log.info("检测到本地 STM32CubeF4: %s", path)
-                return path
+        for path in common_paths:
+            if path.exists():
+                log.debug("路径存在: %s", path)
+                if (path / "Drivers").exists():
+                    log.info("检测到本地 STM32CubeF4: %s", path)
+                    return path
+                else:
+                    log.debug("路径缺少 Drivers 目录: %s", path)
 
         return None
 

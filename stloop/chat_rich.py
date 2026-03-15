@@ -283,10 +283,11 @@ def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
         return True
 
     # 尝试自动检测本地安装
+    console.print("[dim]Scanning for local STM32CubeF4 installation...[/dim]")
     local_cube = client._detect_local_cube()
 
     if local_cube:
-        console.print(f"\n[>] Detected local STM32CubeF4:")
+        console.print(f"\n[>] Found local STM32CubeF4:")
         console.print(f"   {local_cube}")
 
         if Confirm.ask("\n[>] Use this path?", default=True):
@@ -306,9 +307,22 @@ def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
                     return True
                 else:
                     console.print(f"[yellow][!] Invalid path, will download instead[/yellow]")
+    else:
+        console.print("[dim]No local installation found[/dim]")
 
     # 下载 Cube
     console.print("\n[>] STM32CubeF4 not found locally")
+    console.print("[dim]You can:[/dim]")
+    console.print("  1. Auto-download from GitHub (~500MB)")
+    console.print("  2. Install STM32CubeMX and it will be auto-detected")
+    console.print("  3. Download manually from st.com")
+    console.print()
+
+    if not Confirm.ask("[>] Auto-download STM32CubeF4 now?", default=True):
+        console.print("[yellow][!] Cannot proceed without STM32CubeF4[/yellow]")
+        console.print("[dim]Run 'python -m stloop cube-download' later to download[/dim]")
+        return False
+
     console.print("[dim]Downloading from GitHub...[/dim]")
 
     with create_spinner("Downloading STM32CubeF4..."):
