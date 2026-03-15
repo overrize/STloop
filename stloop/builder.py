@@ -1,4 +1,5 @@
 """CMake 构建模块"""
+
 import logging
 import os
 import shutil
@@ -25,15 +26,9 @@ def _parse_build_error(stderr: str) -> str:
     if not text:
         return "无错误输出"
     if "arm-none-eabi-gcc" in text and ("not found" in text or "No such file" in text):
-        return (
-            f"未找到 {TOOLCHAIN_PREFIX}-gcc 编译器。\n"
-            f"{TOOLCHAIN_HINT}"
-        )
+        return f"未找到 {TOOLCHAIN_PREFIX}-gcc 编译器。\n{TOOLCHAIN_HINT}"
     if "CUBE_ROOT" in text or "STM32Cube" in text:
-        return (
-            "STM32Cube 路径配置错误。\n"
-            "请运行: python -m stloop cube-download"
-        )
+        return "STM32Cube 路径配置错误。\n请运行: python -m stloop cube-download"
     if "cmake" in text.lower() and ("not found" in text or "No such file" in text):
         return "未找到 cmake 命令，请安装 CMake 并加入 PATH。"
     # 返回截断的原始信息
@@ -44,9 +39,7 @@ def ensure_toolchain() -> bool:
     """检测 arm-none-eabi-gcc 是否可用，不可用则抛异常。"""
     gcc = shutil.which(f"{TOOLCHAIN_PREFIX}-gcc")
     if not gcc:
-        raise ConfigurationError(
-            f"未找到 {TOOLCHAIN_PREFIX}-gcc 工具链。{TOOLCHAIN_HINT}"
-        )
+        raise ConfigurationError(f"未找到 {TOOLCHAIN_PREFIX}-gcc 工具链。{TOOLCHAIN_HINT}")
     log.info("工具链: %s", gcc)
     return True
 
@@ -99,13 +92,18 @@ def build(
     generator = generator or _get_generator()
     log.info("CMake 生成器: %s", generator)
 
-    # CMake 配置
+    # CMake 配置 - 使用工具链文件强制 ARM 交叉编译
+    cmake_toolchain = project_dir / "cmake" / "arm-gcc-toolchain.cmake"
     cmake_cmd = [
         "cmake",
-        "-G", generator,
+        "-G",
+        generator,
+        f"-DCMAKE_TOOLCHAIN_FILE={cmake_toolchain}",
         f"-DCUBE_ROOT={cube_path}",
-        "-S", str(project_dir),
-        "-B", str(build_dir),
+        "-S",
+        str(project_dir),
+        "-B",
+        str(build_dir),
     ]
     log.debug("执行: %s", " ".join(cmake_cmd))
     try:
@@ -125,9 +123,7 @@ def build(
             msg = _parse_build_error(err_text)
             raise BuildError(f"CMake 配置失败:\n{msg}")
     except FileNotFoundError as e:
-        raise ConfigurationError(
-            "未找到 cmake 命令，请安装 CMake 并加入 PATH。"
-        ) from e
+        raise ConfigurationError("未找到 cmake 命令，请安装 CMake 并加入 PATH。") from e
 
     # CMake 编译
     log.info("正在编译...")
@@ -151,9 +147,7 @@ def build(
 
     elf = build_dir / "stm32_app.elf"
     if not elf.exists():
-        raise BuildError(
-            f"编译未生成 {elf}，请检查 CMake 配置与 arm-none-eabi-gcc 是否已安装"
-        )
+        raise BuildError(f"编译未生成 {elf}，请检查 CMake 配置与 arm-none-eabi-gcc 是否已安装")
 
     log.info("编译成功: %s", elf)
     return elf
