@@ -31,7 +31,7 @@ LOGO_SMALL = f"""[bold {BRAND_COLOR}]
 [/bold {BRAND_COLOR}]"""
 
 # 支持的 MCU 平台
-SUPPORTED_PLATFORFORMS = [
+SUPPORTED_PLATFORMS = [
     ("STM32", "Cortex-M"),
     ("ESP32", "Xtensa"),
     ("nRF52", "Cortex-M4"),
