@@ -1,0 +1,10 @@
+{
+  "mcu_device": "STM32F411xE",
+  "startup_pattern": "f411",
+  "linker_pattern": "F411",
+  "peripherals": [
+    "gpio"
+  ],
+  "sensor": null,
+  "requirement": "PA5 LED blink 1Hz"
+}

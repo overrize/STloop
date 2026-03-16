@@ -233,7 +233,7 @@ def _cmd_gen(client: STLoopClient, args) -> int:
     flash_success = False
 
     if args.build:
-        if not _ensure_cube_with_ui(client, console):
+        if not _ensure_cube_with_ui(client, console, out):
             return 1
 
         elf = _build_with_ui(client, out, args.prompt, console)
@@ -422,7 +422,7 @@ def _cmd_build(client: STLoopClient, args) -> int:
 
     # 检查依赖
     if not (proj / "cube" / "STM32CubeF4" / "Drivers").exists():
-        if not _ensure_cube_with_ui(client, console):
+        if not _ensure_cube_with_ui(client, console, proj):
             return 1
 
     # 编译

@@ -274,7 +274,7 @@ def _prompt_datasheets(console: Console) -> List[Path]:
     return paths
 
 
-def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
+def _ensure_cube_with_ui(client: STLoopClient, console: Console, project_dir: Path = None) -> bool:
     """确保 Cube 已就绪，带 UI 反馈和自动检测"""
 
     # 先检查本地 Cube 路径是否有效
@@ -283,7 +283,9 @@ def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
         return True
 
     # 检查项目是否有内置的 CMSIS（cmsis_minimal）
-    project_cmsis = Path.cwd() / "cmsis_minimal"
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_cmsis = project_dir / "cmsis_minimal"
     if project_cmsis.exists() and (project_cmsis / "Device" / "STM32F4xx" / "Include").exists():
         console.print(f"[green][OK] Using embedded minimal CMSIS[/green]")
         return True
