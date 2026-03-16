@@ -14,10 +14,62 @@ else()
 endif()
 set(MCU_FAMILY STM32F4xx)
 
-# STM32Cube 路径（默认项目内嵌 cube，可自包含复制/二次开发）
+# STM32Cube 路径检测策略：
+# 1. 优先使用用户指定的 CUBE_ROOT 或项目内嵌的 cube
+# 2. 其次尝试查找系统范围的 STM32Cube（STM32CubeMX 安装位置）
+# 3. 最后使用内置的精简 CMSIS（不需要外部 Cube）
 set(CUBE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/cube/STM32CubeF4" CACHE PATH "STM32Cube root")
-if(NOT EXISTS "${CUBE_ROOT}/Drivers")
-  message(FATAL_ERROR "STM32Cube not found at ${CUBE_ROOT}. Run scripts/download_cube.py first.")
+
+# 检测可用的 Cube/CMSIS 来源
+set(USE_EMBEDDED_CMSIS FALSE)
+
+if(EXISTS "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f4xx.h")
+  message(STATUS "Using STM32CubeF4 from: ${CUBE_ROOT}")
+  set(CMSIS_DEVICE_DIR "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F4xx")
+  set(CMSIS_CORE_DIR "${CUBE_ROOT}/Drivers/CMSIS/Include")
+  set(HAL_DRIVER_DIR "${CUBE_ROOT}/Drivers/STM32F4xx_HAL_Driver")
+else()
+  # 尝试系统范围的 Cube（STM32CubeMX 安装位置）
+  if(WIN32)
+    file(GLOB SYS_CUBE "C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeF4" 
+                       "C:/STM32Cube/STM32CubeF4"
+                       "$ENV{USERPROFILE}/STM32Cube/STM32CubeF4")
+  else()
+    file(GLOB SYS_CUBE "/opt/STM32CubeF4" 
+                       "$ENV{HOME}/STM32Cube/STM32CubeF4")
+  endif()
+  
+  if(SYS_CUBE)
+    list(GET SYS_CUBE 0 SYS_CUBE_PATH)
+    if(EXISTS "${SYS_CUBE_PATH}/Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f4xx.h")
+      message(STATUS "Using system STM32CubeF4 from: ${SYS_CUBE_PATH}")
+      set(CUBE_ROOT "${SYS_CUBE_PATH}")
+      set(CMSIS_DEVICE_DIR "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F4xx")
+      set(CMSIS_CORE_DIR "${CUBE_ROOT}/Drivers/CMSIS/Include")
+      set(HAL_DRIVER_DIR "${CUBE_ROOT}/Drivers/STM32F4xx_HAL_Driver")
+    endif()
+  endif()
+endif()
+
+# 如果没有找到完整的 Cube，使用内置的精简 CMSIS
+if(NOT CMSIS_DEVICE_DIR)
+  set(EMBEDDED_CMSIS "${CMAKE_CURRENT_SOURCE_DIR}/cmsis_minimal")
+  if(EXISTS "${EMBEDDED_CMSIS}/Device/STM32F4xx/Include/stm32f411xe.h")
+    message(STATUS "Using embedded minimal CMSIS (no external Cube required)")
+    set(USE_EMBEDDED_CMSIS TRUE)
+    set(CMSIS_DEVICE_DIR "${EMBEDDED_CMSIS}/Device/STM32F4xx")
+    set(CMSIS_CORE_DIR "${EMBEDDED_CMSIS}/Core")
+    # 检查是否有内置的 LL 驱动
+    if(EXISTS "${EMBEDDED_CMSIS}/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_ll_gpio.h")
+      set(HAL_DRIVER_DIR "${EMBEDDED_CMSIS}/Drivers/STM32F4xx_HAL_Driver")
+      message(STATUS "Using embedded LL drivers")
+    else()
+      message(WARNING "Using minimal CMSIS without HAL/LL library. Some features may be limited.")
+    endif()
+  else()
+    message(FATAL_ERROR "STM32CubeF4 not found and embedded CMSIS not available. "
+                        "Please install STM32CubeMX or run 'stloop cube-download'")
+  endif()
 endif()
 
 # 工具链：按 cube 支持，仅用 arm-none-eabi (GNU)。startup 用 gcc/，linker 用 .ld
@@ -45,14 +97,20 @@ add_compile_definitions(
 
 # 包含路径
 set(INCLUDES
-  ${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F4xx/Include
-  ${CUBE_ROOT}/Drivers/CMSIS/Include
-  ${CUBE_ROOT}/Drivers/STM32F4xx_HAL_Driver/Inc
-  ${CMAKE_CURRENT_SOURCE_DIR}/inc
+  ${CMSIS_DEVICE_DIR}/Include
+  ${CMSIS_CORE_DIR}
 )
 
-# 源文件（system/startup 从 cube 引用，兼容不同 Cube/CMSIS 版本路径）
-set(CMSIS_DEVICE ${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F4xx)
+# 如果有 HAL/LL 库，添加其头文件路径
+if(HAL_DRIVER_DIR AND EXISTS "${HAL_DRIVER_DIR}/Inc")
+  list(APPEND INCLUDES ${HAL_DRIVER_DIR}/Inc)
+endif()
+
+# 项目头文件
+list(APPEND INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/inc)
+
+# 源文件（system/startup 从 CMSIS 引用，兼容不同 Cube/CMSIS 版本路径）
+set(CMSIS_DEVICE ${CMSIS_DEVICE_DIR})
 file(GLOB SYSTEM_C_CANDIDATES "${CMSIS_DEVICE}/Source/Templates/system_stm32f4xx.c" "${CMSIS_DEVICE}/Source/system_stm32f4xx.c")
 if(SYSTEM_C_CANDIDATES)
   list(GET SYSTEM_C_CANDIDATES 0 SYSTEM_C_SRC)
@@ -65,7 +123,13 @@ else()
     if(SYSTEM_C_CANDIDATES)
       list(GET SYSTEM_C_CANDIDATES 0 SYSTEM_C_SRC)
     else()
-      message(FATAL_ERROR "system_stm32f4xx.c not found under ${CUBE_ROOT}/Drivers")
+      # GitHub STM32CubeF4 repo stores these in Projects/
+      file(GLOB_RECURSE SYSTEM_C_CANDIDATES "${CUBE_ROOT}/Projects/**/system_stm32f4xx.c")
+      if(SYSTEM_C_CANDIDATES)
+        list(GET SYSTEM_C_CANDIDATES 0 SYSTEM_C_SRC)
+      else()
+        message(FATAL_ERROR "system_stm32f4xx.c not found under ${CUBE_ROOT}/Drivers or ${CUBE_ROOT}/Projects")
+      endif()
     endif()
   endif()
 endif()
@@ -78,6 +142,10 @@ else()
   file(GLOB_RECURSE _ALL_STARTUP "${CMSIS_DEVICE}/**/startup_stm32*.s")
   if(NOT _ALL_STARTUP)
     file(GLOB_RECURSE _ALL_STARTUP "${CUBE_ROOT}/Drivers/**/startup_stm32*.s")
+  endif()
+  if(NOT _ALL_STARTUP)
+    # GitHub STM32CubeF4 repo stores these in Projects/
+    file(GLOB_RECURSE _ALL_STARTUP "${CUBE_ROOT}/Projects/**/startup_stm32*.s")
   endif()
   # 优先 gcc 目录
   set(STARTUP_S_LIST "")
@@ -128,12 +196,19 @@ set(SOURCES
   ${STARTUP_S_FILE}
 )
 
-# LL 驱动（仅 GPIO 示例，可按需添加）
-file(GLOB LL_SOURCES ${CUBE_ROOT}/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_*.c)
-# 过滤掉不需要的
-list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_usb.*")
-list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_fsmc.*")
-list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_sdmmc.*")
+# LL 驱动（如果可用）
+if(HAL_DRIVER_DIR AND EXISTS "${HAL_DRIVER_DIR}/Src")
+  file(GLOB LL_SOURCES ${HAL_DRIVER_DIR}/Src/stm32f4xx_ll_*.c)
+  # 过滤掉不需要的
+  list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_usb.*")
+  list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_fsmc.*")
+  list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_fmc.*")
+  list(FILTER LL_SOURCES EXCLUDE REGEX ".*ll_sdmmc.*")
+  message(STATUS "Using LL drivers from: ${HAL_DRIVER_DIR}")
+else()
+  set(LL_SOURCES "")
+  message(STATUS "No LL drivers available, using minimal build")
+endif()
 
 add_executable(${PROJECT_NAME}.elf ${SOURCES} ${LL_SOURCES})
 target_include_directories(${PROJECT_NAME}.elf PRIVATE ${INCLUDES})

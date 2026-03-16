@@ -1,4 +1,5 @@
 """大模型接口 — 用于代码生成（支持 OpenAI、Kimi 等兼容 API）"""
+
 import logging
 import re
 from pathlib import Path
@@ -55,6 +56,7 @@ SYSTEM_PROMPT = """你是一名嵌入式工程师，专门使用 STM32 LL（Low-
    #include "stm32f4xx_ll_gpio.h"
    #include "stm32f4xx_ll_bus.h"
    #include "stm32f4xx_ll_rcc.h"
+   #include "stm32f4xx_ll_system.h"
    #include "stm32f4xx_ll_utils.h"
 3. **时钟配置**：
    - HSE = 8MHz（Nucleo 板载晶振）
@@ -117,7 +119,9 @@ def generate_main_c(
     model = model or cfg_model
 
     if not api_key:
-        raise ValueError("未设置 OPENAI_API_KEY 或 STLOOP_API_KEY，请先配置。运行 python -m stloop 查看配置说明。")
+        raise ValueError(
+            "未设置 OPENAI_API_KEY 或 STLOOP_API_KEY，请先配置。运行 python -m stloop 查看配置说明。"
+        )
 
     client_kw = {"api_key": api_key}
     if base_url:
@@ -141,8 +145,7 @@ def generate_main_c(
         if "401" in err_msg or "invalid_api_key" in err_msg:
             if not base_url:
                 raise LLMError(
-                    f"API Key 无效或未设置。\n"
-                    f"请在 .env 中配置 OPENAI_API_KEY。{API_BASE_HINT}"
+                    f"API Key 无效或未设置。\n请在 .env 中配置 OPENAI_API_KEY。{API_BASE_HINT}"
                 ) from e
             raise LLMError(
                 f"API Key 无效（{base_url}）。请检查 .env 中的 OPENAI_API_KEY 是否正确。"

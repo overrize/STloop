@@ -282,6 +282,12 @@ def _ensure_cube_with_ui(client: STLoopClient, console: Console) -> bool:
         console.print(f"[green][OK] STM32Cube ready: {client.cube_path}[/green]")
         return True
 
+    # 检查项目是否有内置的 CMSIS（cmsis_minimal）
+    project_cmsis = Path.cwd() / "cmsis_minimal"
+    if project_cmsis.exists() and (project_cmsis / "Device" / "STM32F4xx" / "Include").exists():
+        console.print(f"[green][OK] Using embedded minimal CMSIS[/green]")
+        return True
+
     # 尝试自动检测本地安装
     console.print("[dim]Scanning for local STM32CubeF4 installation...[/dim]")
     local_cube = client._detect_local_cube()

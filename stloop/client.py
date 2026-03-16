@@ -171,6 +171,15 @@ class STLoopClient:
             shutil.copy2(p, out)
             log.info("补齐模板: %s", rel)
 
+        # 复制内置 CMSIS（如果没有完整的 Cube）
+        cmsis_src = _paths.get_templates_dir() / "cmsis_minimal"
+        if cmsis_src.exists():
+            cmsis_dest = dest / "cmsis_minimal"
+            if not cmsis_dest.exists():
+                log.info("复制内置 CMSIS...")
+                shutil.copytree(cmsis_src, cmsis_dest)
+                log.info("内置 CMSIS 已复制到: %s", cmsis_dest)
+
     def _embed_cube(self, project_dir: Path, cube_path: Path) -> Path:
         """将 cube 库复制到项目内，使项目自包含。与 CubeMX 一致：lib 每次更新，确保使用最新驱动。"""
         dest = project_dir / "cube" / "STM32CubeF4"
@@ -375,7 +384,15 @@ class STLoopClient:
         if cube_dest is not None:
             self._ensure_linker_startup_in_project(out, cube_dest, startup_pat, linker_pat)
         else:
-            log.warning("未内嵌 cube，跳过复制 .ld/startup 到工程目录")
+            # 没有完整 Cube，使用内置 CMSIS，需要生成链接器脚本
+            log.info("使用内置 CMSIS，生成链接器脚本")
+            from .linker_gen import generate_linker_script
+
+            gen_ld = generate_linker_script(out, linker_pat)
+            if gen_ld:
+                print(f"  [生成] 生成链接脚本: {gen_ld.name}")
+            else:
+                log.warning("linker 生成失败，芯片 %s 可能不在支持列表", linker_pat)
         log.info("工程已生成: %s", out)
         return out
 

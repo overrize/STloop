@@ -82,11 +82,18 @@ def build(
     proj_startup = list(project_dir.glob("startup_stm32*.s"))
     log.info("工程目录下 .ld 数量: %d, startup_*.s 数量: %d", len(proj_ld), len(proj_startup))
 
-    if not (cube_path / "Drivers").exists():
+    # 检查是否有完整的 Cube 或内置的 CMSIS
+    embedded_cmsis = project_dir / "cmsis_minimal"
+    if not (cube_path / "Drivers").exists() and not embedded_cmsis.exists():
         raise ConfigurationError(
             f"STM32Cube 未找到: {cube_path}\n"
             f"请确认 cube 路径正确，或运行: python -m stloop cube-download"
         )
+
+    # 如果有内置 CMSIS 但没有 Cube，使用内置 CMSIS
+    if not (cube_path / "Drivers").exists() and embedded_cmsis.exists():
+        log.info("使用内置 CMSIS，无需外部 Cube")
+        # cube_path 在这里不会被 CMake 使用，因为 CMakeLists.txt 会检测 cmsis_minimal
 
     ensure_toolchain()
     generator = generator or _get_generator()
