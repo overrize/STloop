@@ -121,14 +121,48 @@ def build(
             env=dict(**os.environ),
         )
         if result.returncode != 0:
-            log.error("CMake 配置失败 (exit %d)", result.returncode)
             err_text = result.stderr or result.stdout or "无输出"
-            if result.stderr:
-                log.error("stderr: %s", result.stderr)
-            if result.stdout:
-                log.error("stdout: %s", result.stdout)
-            msg = _parse_build_error(err_text)
-            raise BuildError(f"CMake 配置失败:\n{msg}")
+
+            # 检查是否是生成器不匹配错误
+            if "generator" in err_text.lower() and "does not match" in err_text.lower():
+                log.warning("检测到 CMake 生成器不匹配，清理缓存并重新配置...")
+                import shutil
+
+                cache_file = build_dir / "CMakeCache.txt"
+                files_dir = build_dir / "CMakeFiles"
+                if cache_file.exists():
+                    cache_file.unlink()
+                    log.debug("删除: %s", cache_file)
+                if files_dir.exists():
+                    shutil.rmtree(files_dir)
+                    log.debug("删除: %s", files_dir)
+
+                # 重新尝试配置
+                result = subprocess.run(
+                    cmake_cmd,
+                    capture_output=True,
+                    text=True,
+                    env=dict(**os.environ),
+                )
+                if result.returncode == 0:
+                    log.info("重新配置成功")
+                else:
+                    err_text = result.stderr or result.stdout or "无输出"
+                    log.error("CMake 重新配置失败")
+                    if result.stderr:
+                        log.error("stderr: %s", result.stderr)
+                    if result.stdout:
+                        log.error("stdout: %s", result.stdout)
+                    msg = _parse_build_error(err_text)
+                    raise BuildError(f"CMake 配置失败:\n{msg}")
+            else:
+                log.error("CMake 配置失败 (exit %d)", result.returncode)
+                if result.stderr:
+                    log.error("stderr: %s", result.stderr)
+                if result.stdout:
+                    log.error("stdout: %s", result.stdout)
+                msg = _parse_build_error(err_text)
+                raise BuildError(f"CMake 配置失败:\n{msg}")
     except FileNotFoundError as e:
         raise ConfigurationError("未找到 cmake 命令，请安装 CMake 并加入 PATH。") from e
 
