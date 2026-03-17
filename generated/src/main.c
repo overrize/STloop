@@ -14,10 +14,15 @@ int main(void)
     SystemClock_Config();
     USART2_Init();
 
+    const char msg[] = "USART2 115200\r\n";
     while (1)
     {
-        while (!LL_USART_IsActiveFlag_TXE(USART2));
-        LL_USART_TransmitData8(USART2, 'A');
+        const char *p = msg;
+        while (*p)
+        {
+            while (!LL_USART_IsActiveFlag_TXE(USART2));
+            LL_USART_TransmitData8(USART2, *p++);
+        }
         LL_mDelay(1000);
     }
 }
@@ -32,8 +37,10 @@ static void SystemClock_Config(void)
     while (!LL_RCC_PLL_IsReady());
     LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
     while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL);
-    LL_SetSystemCoreClock(100000000);
+    LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
     LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_2);
+    LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_1);
+    LL_SetSystemCoreClock(100000000);
 }
 
 static void USART2_Init(void)
@@ -53,7 +60,7 @@ static void USART2_Init(void)
     LL_GPIO_SetPinPull(GPIOA, LL_GPIO_PIN_3, LL_GPIO_PULL_UP);
     LL_GPIO_SetAFPin_0_7(GPIOA, LL_GPIO_PIN_3, LL_GPIO_AF_7);
 
-    LL_USART_SetBaudRate(USART2, 100000000, LL_USART_OVERSAMPLING_16, 115200);
+    LL_USART_SetBaudRate(USART2, 50000000, LL_USART_OVERSAMPLING_16, 115200);
     LL_USART_SetDataWidth(USART2, LL_USART_DATAWIDTH_8B);
     LL_USART_SetStopBitsLength(USART2, LL_USART_STOPBITS_1);
     LL_USART_SetParity(USART2, LL_USART_PARITY_NONE);

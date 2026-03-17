@@ -406,6 +406,112 @@ def _cmd_validate(client: STLoopClient, args) -> int:
     return 0
 
 
+def _install_zephyr_ui(console) -> bool:
+    """安装 Zephyr RTOS 的交互式向导"""
+    import subprocess
+    import os
+    from pathlib import Path
+
+    console.print("\n[bold blue]Zephyr RTOS 安装向导[/bold blue]\n")
+
+    # 1. 检查 Python 版本
+    console.print("[1/4] 检查 Python 环境...")
+    if sys.version_info < (3, 8):
+        console.print("[red][FAIL] 需要 Python 3.8+[/red]")
+        return False
+    console.print(f"[green][OK] Python {sys.version_info.major}.{sys.version_info.minor}[/green]\n")
+
+    # 2. 安装 west
+    console.print("[2/4] 安装 west 工具...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "west"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            console.print("[green][OK] west 安装成功[/green]\n")
+        else:
+            console.print(f"[yellow][!] west 可能已安装: {result.stderr[:100]}[/yellow]\n")
+    except Exception as e:
+        console.print(f"[yellow][!] west 安装检查: {e}[/yellow]\n")
+
+    # 3. 获取 Zephyr 安装路径
+    default_path = str(Path.home() / "zephyrproject")
+    console.print("[3/4] 配置安装路径")
+    console.print(f"[dim]默认路径: {default_path}[/dim]")
+
+    from rich.prompt import Prompt
+
+    custom_path = Prompt.ask("安装路径", default=default_path)
+    install_path = Path(custom_path).resolve()
+
+    # 4. 下载 Zephyr（使用 aria2c 或 git）
+    console.print("\n[4/4] 下载 Zephyr RTOS (~500MB)...")
+    console.print("[dim]这可能需要 5-30 分钟，取决于网络速度...[/dim]\n")
+
+    zephyr_dir = install_path / "zephyr"
+
+    try:
+        install_path.mkdir(parents=True, exist_ok=True)
+
+        # 尝试使用 git 克隆
+        console.print("尝试克隆 Zephyr 仓库...")
+        result = subprocess.run(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                "v3.5.0",
+                "https://github.com/zephyrproject-rtos/zephyr.git",
+                str(zephyr_dir),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 分钟超时
+        )
+
+        if result.returncode != 0:
+            console.print(f"[red][FAIL] Git 克隆失败: {result.stderr[:200]}[/red]")
+            console.print("[yellow]提示: 检查网络连接或手动下载[/yellow]")
+            console.print(
+                f"[dim]手动安装指南: https://docs.zephyrproject.org/latest/develop/getting_started/index.html[/dim]"
+            )
+            return False
+
+        # 5. 设置环境变量
+        console.print("\n[bold]设置环境变量...[/bold]")
+        console.print(f"[green]ZEPHYR_BASE = {zephyr_dir}[/green]")
+
+        # 设置当前进程的环境变量
+        os.environ["ZEPHYR_BASE"] = str(zephyr_dir)
+
+        # 尝试更新 west 模块
+        console.print("\n[dim]初始化 west 模块（可选）...[/dim]")
+        try:
+            subprocess.run(
+                ["west", "update"], cwd=str(install_path), capture_output=True, timeout=300
+            )
+        except:
+            pass  # 非关键步骤，失败也没关系
+
+        console.print(f"\n[green bold][OK] Zephyr 安装成功！[/green bold]")
+        console.print(f"[dim]位置: {zephyr_dir}[/dim]")
+        console.print("\n[yellow]注意: 请重启终端或 IDE 以加载新的环境变量[/yellow]")
+
+        return True
+
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ 下载超时，请检查网络连接[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ 安装失败: {e}[/red]")
+        return False
+
+
 def _cmd_build(client: STLoopClient, args) -> int:
     """编译命令"""
     console = get_console()
@@ -419,14 +525,57 @@ def _cmd_build(client: STLoopClient, args) -> int:
         _flash_with_ui,
         _start_serial_monitor_ui,
     )
+    from .builder import _is_zephyr_project, check_zephyr_environment
+    from rich.prompt import Confirm
+
+    # 检查是否为 Zephyr 项目并询问用户
+    is_zephyr = _is_zephyr_project(proj)
+    use_zephyr = False
+
+    if is_zephyr:
+        console.print("\n[blue][Zephyr][/blue] 检测到 Zephyr RTOS 项目")
+        console.print("[dim]Zephyr 提供现代 RTOS 功能（多线程、设备树、丰富的驱动生态）[/dim]\n")
+
+        # 检查 Zephyr 环境
+        is_ready, msg = check_zephyr_environment()
+
+        if is_ready:
+            console.print(f"[green][OK] {msg}[/green]")
+            if Confirm.ask("是否使用 Zephyr RTOS 构建？", default=True):
+                use_zephyr = True
+            else:
+                console.print("[yellow]将使用标准 CMSIS 构建（轻量级，无需 Zephyr）[/yellow]")
+        else:
+            console.print(f"[yellow][!] {msg}[/yellow]")
+            console.print("[dim]Zephyr 尚未安装，使用标准 CMSIS 构建[/dim]")
+
+            if Confirm.ask("是否现在安装 Zephyr？（需要 ~2GB 空间和 10-30 分钟）", default=False):
+                console.print("[yellow]开始安装 Zephyr...[/yellow]")
+                if _install_zephyr_ui(console):
+                    console.print("[green][OK] Zephyr 安装成功！[/green]")
+                    use_zephyr = Confirm.ask("是否使用 Zephyr RTOS 构建？", default=True)
+                else:
+                    console.print("[red][FAIL] Zephyr 安装失败，将使用 CMSIS 构建[/red]")
+            else:
+                console.print("[yellow]跳过安装，使用标准 CMSIS 构建[/yellow]")
+
+        console.print()
 
     # 检查依赖
-    if not (proj / "cube" / "STM32CubeF4" / "Drivers").exists():
+    # Zephyr 项目（使用 CMSIS 模式）和 cmsis_minimal 项目不需要 STM32CubeF4
+    has_cube = (proj / "cube" / "STM32CubeF4" / "Drivers").exists()
+    has_cmsis = (proj / "cmsis_minimal").exists()
+
+    # 如果是 Zephyr 项目但选择不使用 Zephyr，则当作普通 CMSIS 项目处理
+    if is_zephyr and not use_zephyr:
+        has_cmsis = True  # Zephyr 项目包含 cmsis_minimal
+
+    if not has_cube and not has_cmsis and not (is_zephyr and use_zephyr):
         if not _ensure_cube_with_ui(client, console, proj):
             return 1
 
     # 编译
-    elf = _build_with_ui(client, proj, "Build project", console)
+    elf = _build_with_ui(client, proj, "Build project", console, use_zephyr=use_zephyr)
     if not elf:
         return 1
 

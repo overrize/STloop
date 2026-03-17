@@ -287,11 +287,13 @@ class STLoopClient:
         project_dir: Path,
         build_dir: Optional[Path] = None,
         cube_path: Optional[Path] = None,
+        use_zephyr: Optional[bool] = None,
     ) -> Path:
         """
         编译 STM32 工程。
         project_dir: 工程目录（含 CMakeLists.txt）
         cube_path: 显式指定时使用；否则项目有内嵌 cube 则用项目的，否则用 ensure_cube 的
+        use_zephyr: 是否使用 Zephyr RTOS（None=自动检测并询问）
         返回 .elf 路径
         """
         proj = Path(project_dir) if Path(project_dir).is_absolute() else self.work_dir / project_dir
@@ -305,7 +307,7 @@ class STLoopClient:
         else:
             cube = self.cube_path
             log.info("build: 使用工作区 cube_path=%s", cube)
-        return _build(proj, build_dir=build_dir, cube_path=cube)
+        return _build(proj, build_dir=build_dir, cube_path=cube, use_zephyr=use_zephyr)
 
     def flash(
         self,

@@ -411,6 +411,7 @@ def _build_with_ui(
     project_dir: Path,
     prompt: str,
     console: Console,
+    use_zephyr: bool = False,
 ) -> Optional[Path]:
     """编译工程，带进度和自动修复"""
     max_fix_rounds = 3
@@ -428,7 +429,7 @@ def _build_with_ui(
                     progress.update(task, advance=1)
                     # 实际编译不需要进度更新，这里为了视觉效果
                     if i == 50:
-                        elf = client.build(project_dir)
+                        elf = client.build(project_dir, use_zephyr=use_zephyr)
                         break
 
                 console.print(
