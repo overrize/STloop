@@ -274,8 +274,92 @@ def _prompt_datasheets(console: Console) -> List[Path]:
     return paths
 
 
-def _ensure_cube_with_ui(client: STLoopClient, console: Console, project_dir: Path = None) -> bool:
+def _select_rtos_ui(console: Console) -> bool:
+    """RTOS 选择 UI，询问用户是否使用 Zephyr RTOS"""
+    from rich.table import Table
+
+    console.print("\n[dim]Select your preferred RTOS/HAL framework:[/dim]\n")
+
+    # 显示选项表格
+    table = Table(show_header=True, header_style="bold cyan", box=None)
+    table.add_column("Option", style="cyan", width=8)
+    table.add_column("Framework", style="white", width=20)
+    table.add_column("Description", style="dim")
+    table.add_column("Size", style="yellow", width=15)
+
+    table.add_row(
+        "1",
+        "CMSIS (LL)",
+        "Lightweight, minimal HAL from ST\nStandard STM32 development",
+        "~10 MB (minimal)",
+    )
+    table.add_row(
+        "2",
+        "Zephyr RTOS",
+        "Modern RTOS with rich ecosystem\nMulti-threading, device tree, networking",
+        "~500 MB (full)",
+    )
+
+    console.print(table)
+    console.print()
+
+    # 询问选择
+    choice = Prompt.ask("[cyan]Your choice[/cyan]", choices=["1", "2"], default="1")
+
+    use_zephyr = choice == "2"
+
+    if use_zephyr:
+        console.print("\n[blue][Zephyr][/blue] Selected Zephyr RTOS")
+        console.print("[dim]Checking Zephyr environment...[/dim]")
+
+        # 检查 Zephyr 环境
+        from .builder import check_zephyr_environment
+
+        is_ready, msg = check_zephyr_environment()
+
+        if is_ready:
+            console.print(f"[green][OK] {msg}[/green]")
+            console.print("[dim]Project will be generated for Zephyr RTOS[/dim]")
+        else:
+            console.print(f"[yellow][!] {msg}[/yellow]")
+            console.print(
+                "[dim]Note: You can install Zephyr later or the project will use CMSIS fallback[/dim]"
+            )
+
+            if Confirm.ask("Install Zephyr now? (~2GB, 10-30 min)", default=False):
+                console.print("[yellow]Installing Zephyr...[/yellow]")
+                # 这里可以调用安装函数，但先简化处理
+                console.print("[dim]Installation skipped for now. Project will use CMSIS.[/dim]")
+                console.print(
+                    "[yellow]You can install later: https://docs.zephyrproject.org[/yellow]"
+                )
+                use_zephyr = False
+    else:
+        console.print("\n[green][OK] Using CMSIS (LL) - Lightweight HAL[/green]")
+        console.print("[dim]Standard STM32 Low-Level drivers, no RTOS overhead[/dim]")
+
+    console.print()
+    return use_zephyr
+
+
+def _ensure_cube_with_ui(
+    client: STLoopClient, console: Console, project_dir: Path = None, use_zephyr: bool = False
+) -> bool:
     """确保 Cube 已就绪，带 UI 反馈和自动检测"""
+
+    # 如果使用 Zephyr，检查 Zephyr 环境
+    if use_zephyr:
+        from .builder import check_zephyr_environment
+
+        is_ready, msg = check_zephyr_environment()
+        if is_ready:
+            console.print(f"[green][OK] Zephyr environment ready[/green]")
+            console.print(f"[dim]{msg}[/dim]")
+            return True
+        else:
+            console.print(f"[yellow][!] {msg}[/yellow]")
+            console.print("[dim]Will use CMSIS as fallback. You can install Zephyr later.[/dim]")
+            # 继续检查 CMSIS 是否可用
 
     # 先检查本地 Cube 路径是否有效
     if client.cube_path.exists() and (client.cube_path / "Drivers").exists():
@@ -570,13 +654,17 @@ def run_interactive_rich(
     schematic_path = _prompt_schematic(console)
     datasheet_paths = _prompt_datasheets(console)
 
+    # 5.5 RTOS 选择
+    console.print("\n[bold cyan]Step 4: RTOS Selection[/bold cyan]")
+    use_zephyr = _select_rtos_ui(console)
+
     # 6. 确保依赖
-    console.print("\n[bold cyan]Step 4: Preparing Dependencies[/bold cyan]")
-    if not _ensure_cube_with_ui(client, console):
+    console.print("\n[bold cyan]Step 5: Preparing Dependencies[/bold cyan]")
+    if not _ensure_cube_with_ui(client, console, use_zephyr=use_zephyr):
         return 1
 
     # 7. 生成代码
-    console.print("\n[bold cyan]Step 5: Code Generation[/bold cyan]")
+    console.print("\n[bold cyan]Step 6: Code Generation[/bold cyan]")
 
     from . import _paths
 
@@ -590,7 +678,7 @@ def run_interactive_rich(
         return 1
 
     # 8. 编译
-    console.print("\n[bold cyan]Step 6: Build[/bold cyan]")
+    console.print("\n[bold cyan]Step 7: Build[/bold cyan]")
     elf = _build_with_ui(client, project_dir, full_prompt, console)
 
     if not elf:
@@ -607,7 +695,7 @@ def run_interactive_rich(
         return 1
 
     # 9. 部署选择：自动检测硬件或提供智能选项
-    console.print("\n[bold cyan]Step 7: Deploy & Test[/bold cyan]")
+    console.print("\n[bold cyan]Step 8: Deploy & Test[/bold cyan]")
 
     # 检测硬件连接
     has_probe = _detect_debug_probe()
