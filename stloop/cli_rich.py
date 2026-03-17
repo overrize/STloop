@@ -539,25 +539,39 @@ def _cmd_build(client: STLoopClient, args) -> int:
         # 检查 Zephyr 环境
         is_ready, msg = check_zephyr_environment()
 
+        # 检查是否在交互式环境（TTY）
+        is_interactive = sys.stdin.isatty() and sys.stdout.isatty()
+
         if is_ready:
             console.print(f"[green][OK] {msg}[/green]")
-            if Confirm.ask("是否使用 Zephyr RTOS 构建？", default=True):
-                use_zephyr = True
+            if is_interactive:
+                if Confirm.ask("是否使用 Zephyr RTOS 构建？", default=True):
+                    use_zephyr = True
+                else:
+                    console.print("[yellow]将使用标准 CMSIS 构建（轻量级，无需 Zephyr）[/yellow]")
             else:
-                console.print("[yellow]将使用标准 CMSIS 构建（轻量级，无需 Zephyr）[/yellow]")
+                # 非交互式环境，默认使用 Zephyr
+                console.print("[dim]非交互式环境，自动使用 Zephyr RTOS[/dim]")
+                use_zephyr = True
         else:
             console.print(f"[yellow][!] {msg}[/yellow]")
             console.print("[dim]Zephyr 尚未安装，使用标准 CMSIS 构建[/dim]")
 
-            if Confirm.ask("是否现在安装 Zephyr？（需要 ~2GB 空间和 10-30 分钟）", default=False):
-                console.print("[yellow]开始安装 Zephyr...[/yellow]")
-                if _install_zephyr_ui(console):
-                    console.print("[green][OK] Zephyr 安装成功！[/green]")
-                    use_zephyr = Confirm.ask("是否使用 Zephyr RTOS 构建？", default=True)
+            if is_interactive:
+                if Confirm.ask(
+                    "是否现在安装 Zephyr？（需要 ~2GB 空间和 10-30 分钟）", default=False
+                ):
+                    console.print("[yellow]开始安装 Zephyr...[/yellow]")
+                    if _install_zephyr_ui(console):
+                        console.print("[green][OK] Zephyr 安装成功！[/green]")
+                        use_zephyr = Confirm.ask("是否使用 Zephyr RTOS 构建？", default=True)
+                    else:
+                        console.print("[red][FAIL] Zephyr 安装失败，将使用 CMSIS 构建[/red]")
                 else:
-                    console.print("[red][FAIL] Zephyr 安装失败，将使用 CMSIS 构建[/red]")
+                    console.print("[yellow]跳过安装，使用标准 CMSIS 构建[/yellow]")
             else:
-                console.print("[yellow]跳过安装，使用标准 CMSIS 构建[/yellow]")
+                # 非交互式环境，跳过安装，使用 CMSIS
+                console.print("[dim]非交互式环境，自动使用标准 CMSIS 构建[/dim]")
 
         console.print()
 
