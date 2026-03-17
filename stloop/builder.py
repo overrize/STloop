@@ -56,11 +56,84 @@ def _get_generator() -> str:
     return "Unix Makefiles"
 
 
+def _is_zephyr_project(project_dir: Path) -> bool:
+    """检查是否为 Zephyr 项目"""
+    return (project_dir / "prj.conf").exists() and "zephyr" in (
+        project_dir / "CMakeLists.txt"
+    ).read_text(encoding="utf-8", errors="ignore").lower()
+
+
+def _build_zephyr(project_dir: Path, build_dir: Path, board: str = "nucleo_f411re") -> Path:
+    """使用 west 构建 Zephyr 项目"""
+    log.info("检测到 Zephyr 项目，使用 west 构建...")
+
+    # 检查 west 工具
+    west = shutil.which("west")
+    if not west:
+        raise ConfigurationError(
+            "未找到 west 工具。请安装: pip install west\n"
+            "并确保 Zephyr SDK 已正确设置: https://docs.zephyrproject.org/latest/develop/getting_started/index.html"
+        )
+
+    # 检查 ZEPHYR_BASE
+    zephyr_base = os.environ.get("ZEPHYR_BASE")
+    if not zephyr_base:
+        # 尝试常见路径
+        for path in [
+            Path.home() / "zephyrproject" / "zephyr",
+            Path("/opt/zephyrproject/zephyr"),
+            Path("C:/zephyrproject/zephyr"),
+        ]:
+            if path.exists():
+                zephyr_base = str(path)
+                os.environ["ZEPHYR_BASE"] = zephyr_base
+                break
+
+    if not zephyr_base or not Path(zephyr_base).exists():
+        raise ConfigurationError(
+            "未找到 Zephyr 环境 (ZEPHYR_BASE)。\n"
+            "请先安装 Zephyr: https://docs.zephyrproject.org/latest/develop/getting_started/index.html"
+        )
+
+    log.info("ZEPHYR_BASE: %s", zephyr_base)
+    log.info("目标板: %s", board)
+
+    # 构建命令
+    west_cmd = [west, "build", "-p", "auto", "-b", board, str(project_dir), "-d", str(build_dir)]
+
+    log.debug("执行: %s", " ".join(west_cmd))
+    try:
+        result = subprocess.run(
+            west_cmd,
+            capture_output=True,
+            text=True,
+            env=dict(**os.environ),
+        )
+        if result.returncode != 0:
+            raise BuildError(f"Zephyr 构建失败:\n{result.stderr or result.stdout}")
+
+        # 查找生成的 ELF
+        elf_paths = [
+            build_dir / "zephyr" / "zephyr.elf",
+            build_dir / "zephyr.elf",
+        ]
+        for elf_path in elf_paths:
+            if elf_path.exists():
+                log.info("✓ Zephyr 构建成功: %s", elf_path)
+                return elf_path
+
+        raise BuildError("构建成功但未找到 ELF 文件")
+
+    except subprocess.CalledProcessError as e:
+        raise BuildError(f"Zephyr 构建失败: {e}")
+
+
 def build(
     project_dir: Path,
     build_dir: Optional[Path] = None,
     cube_path: Optional[Path] = None,
     generator: Optional[str] = None,
+    board: Optional[str] = None,
 ) -> Path:
     """
     执行 CMake 配置与编译。
@@ -70,6 +143,10 @@ def build(
     build_dir = build_dir or project_dir / "build"
     build_dir = Path(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
+
+    # 检查是否为 Zephyr 项目
+    if _is_zephyr_project(project_dir):
+        return _build_zephyr(project_dir, build_dir, board or "nucleo_f411re")
 
     if cube_path is None:
         cube_path = project_dir / "cube" / "STM32CubeF4"
