@@ -205,6 +205,7 @@ stloop -v gen "test" --build
 ## 文档
 
 - [Zephyr + Renode 端到端测试](docs/ZEPHYR_RENODE_E2E.md) - Zephyr 构建到 Renode 仿真的完整流程
+- [Cube vs Zephyr 选择指南](docs/CUBE_VS_ZEPHYR.md) - 为什么默认使用 Cube，如何切换到 Zephyr
 - [开发经验](docs/LESSONS.md) - 踩坑记录
 - [Renode 仿真计划](docs/RENODE_PLAN.md) - 仿真功能详情
 - [决策清单](docs/DECISION_CHECKLIST.md) - 设计决策
@@ -220,6 +221,25 @@ cd test_zephyr
 stloop build . --board nucleo_f411re
 renode --console build/simulation.resc
 ```
+
+### 为什么用 Cube 而不是 Zephyr？
+
+**默认使用 Cube**（简单、轻量、即装即用）：
+```bash
+stloop gen "PA5 LED闪烁"  # 使用 Cube HAL/LL
+```
+
+**手动切换到 Zephyr**（功能丰富、跨平台）：
+```bash
+# 方法1：使用 Zephyr 模板
+cp -r templates/zephyr my_project
+# 修改代码后构建
+west build -b nucleo_f411re my_project
+
+# 方法2：转换现有项目（见文档）
+```
+
+详细对比和迁移指南：[Cube vs Zephyr](docs/CUBE_VS_ZEPHYR.md)
 
 ## License
 
