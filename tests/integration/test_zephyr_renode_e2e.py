@@ -66,7 +66,7 @@ def check_prerequisites():
     # 打印结果
     all_ok = True
     for name, ok, detail in checks:
-        status = "✓" if ok else "✗"
+        status = "[OK]" if ok else "[FAIL]"
         print(f"  {status} {name}: {detail}")
         if not ok:
             all_ok = False
@@ -80,15 +80,16 @@ def test_build_with_stloop():
     print("测试 1: 使用 stloop 构建项目")
     print("=" * 60)
 
-    sys.path.insert(0, str(Path(__file__).parent))
-    from stloop.builder import build
     from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from stloop.builder import build
 
     # 使用 test_zephyr 作为测试项目
     project_dir = Path(__file__).parent / "test_zephyr"
 
     if not project_dir.exists():
-        print(f"  ✗ 项目目录不存在: {project_dir}")
+        print(f"  [FAIL] 项目目录不存在: {project_dir}")
         return False, None
 
     print(f"  项目目录: {project_dir}")
@@ -103,10 +104,10 @@ def test_build_with_stloop():
 
         # 构建项目
         elf_path = build(project_dir, build_dir=build_dir, board="nucleo_f411re", use_zephyr=False)
-        print(f"  ✓ 构建成功: {elf_path}")
+        print(f"  [OK] 构建成功: {elf_path}")
         return True, elf_path
     except Exception as e:
-        print(f"  ✗ 构建失败: {e}")
+        print(f"  [FAIL] 构建失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -125,7 +126,7 @@ def test_generate_renode_script(elf_path):
     try:
         config = RenodeConfig(mcu="STM32F411RE", show_gui=False, enable_uart=True)
         script_path = generate_resc_script(elf_path, mcu="STM32F411RE", config=config)
-        print(f"  ✓ 脚本生成成功: {script_path}")
+        print(f"  [OK] 脚本生成成功: {script_path}")
 
         # 显示脚本内容
         content = script_path.read_text()
@@ -136,7 +137,7 @@ def test_generate_renode_script(elf_path):
 
         return True, script_path
     except Exception as e:
-        print(f"  ✗ 脚本生成失败: {e}")
+        print(f"  [FAIL] 脚本生成失败: {e}")
         import traceback
 
         traceback.print_exc()
@@ -154,12 +155,12 @@ def test_renode_simulation(elf_path, script_path):
 
     renode_bin = find_renode_bin()
     if not renode_bin:
-        print("  ✗ Renode 未安装")
+        print("  [FAIL] Renode 未安装")
         return False
 
-    print(f"  ✓ Renode 路径: {renode_bin}")
-    print(f"  ✓ ELF 文件: {elf_path}")
-    print(f"  ✓ 脚本文件: {script_path}")
+    print(f"  [OK] Renode 路径: {renode_bin}")
+    print(f"  [OK] ELF 文件: {elf_path}")
+    print(f"  [OK] 脚本文件: {script_path}")
 
     # 验证文件存在
     checks = [
@@ -168,7 +169,7 @@ def test_renode_simulation(elf_path, script_path):
     ]
 
     for name, ok in checks:
-        status = "✓" if ok else "✗"
+        status = "[OK]" if ok else "[FAIL]"
         print(f"  {status} {name}")
 
     # 手动运行命令提示
@@ -190,7 +191,7 @@ def main():
     ok, checks = check_prerequisites()
     if not ok:
         print("\n" + "=" * 60)
-        print("✗ 前置条件检查失败，请安装缺失的工具")
+        print("[FAIL] 前置条件检查失败，请安装缺失的工具")
         print("=" * 60)
         sys.exit(1)
 
@@ -198,7 +199,7 @@ def main():
     ok, elf_path = test_build_with_stloop()
     if not ok:
         print("\n" + "=" * 60)
-        print("✗ 构建测试失败")
+        print("[FAIL] 构建测试失败")
         print("=" * 60)
         sys.exit(1)
 
@@ -206,7 +207,7 @@ def main():
     ok, script_path = test_generate_renode_script(elf_path)
     if not ok:
         print("\n" + "=" * 60)
-        print("✗ Renode 脚本生成失败")
+        print("[FAIL] Renode 脚本生成失败")
         print("=" * 60)
         sys.exit(1)
 
@@ -214,13 +215,13 @@ def main():
     ok = test_renode_simulation(elf_path, script_path)
     if not ok:
         print("\n" + "=" * 60)
-        print("✗ Renode 仿真配置验证失败")
+        print("[FAIL] Renode 仿真配置验证失败")
         print("=" * 60)
         sys.exit(1)
 
     # 成功
     print("\n" + "=" * 60)
-    print("✓ 端到端测试全部通过！")
+    print("[OK] 端到端测试全部通过！")
     print("=" * 60)
     print(f"\n构建产物: {elf_path}")
     print(f"仿真脚本: {script_path}")
