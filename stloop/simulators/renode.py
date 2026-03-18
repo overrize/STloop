@@ -182,6 +182,16 @@ def generate_resc_script(
             ]
         )
 
+    # 添加 GDB 服务器支持（如果有配置）
+    if hasattr(config, "gdb_port") and config.gdb_port:
+        script_lines.extend(
+            [
+                "",
+                f"; Start GDB server on port {config.gdb_port}",
+                f"machine StartGdbServer {config.gdb_port}",
+            ]
+        )
+
     # 启动或暂停
     script_lines.extend(
         [
@@ -312,12 +322,12 @@ class RenodeSimulator:
             except subprocess.TimeoutExpired:
                 return False
         else:
-            # 非阻塞模式
+            # 非阻塞模式 - 使用交互式终端连接
             self.process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+                stdin=None,  # 继承父进程 stdin，允许用户交互
+                stdout=None,  # 继承父进程 stdout，直接显示输出
+                stderr=None,  # 继承父进程 stderr
             )
             self.status = RenodeStatus.RUNNING
             return True

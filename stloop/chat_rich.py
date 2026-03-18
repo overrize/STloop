@@ -14,6 +14,7 @@ STLoop 交互式终端 - 重构版
 
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -328,18 +329,139 @@ def _select_rtos_ui(console: Console) -> bool:
 
             if Confirm.ask("Install Zephyr now? (~2GB, 10-30 min)", default=False):
                 console.print("[yellow]Installing Zephyr...[/yellow]")
-                # 这里可以调用安装函数，但先简化处理
-                console.print("[dim]Installation skipped for now. Project will use CMSIS.[/dim]")
-                console.print(
-                    "[yellow]You can install later: https://docs.zephyrproject.org[/yellow]"
-                )
-                use_zephyr = False
+                # 调用安装向导
+                if _install_zephyr_ui(console):
+                    console.print("[green][OK] Zephyr installed successfully![/green]")
+                    # 重新检查环境
+                    is_ready, msg = check_zephyr_environment()
+                    if is_ready:
+                        console.print(f"[green][OK] {msg}[/green]")
+                        use_zephyr = True
+                    else:
+                        console.print(f"[yellow][!] {msg}[/yellow]")
+                        console.print("[dim]Project will use CMSIS fallback[/dim]")
+                        use_zephyr = False
+                else:
+                    console.print("[red][FAIL] Zephyr installation failed[/red]")
+                    console.print("[dim]Project will use CMSIS fallback[/dim]")
+                    console.print(
+                        "[yellow]You can install manually: https://docs.zephyrproject.org[/yellow]"
+                    )
+                    use_zephyr = False
     else:
         console.print("\n[green][OK] Using CMSIS (LL) - Lightweight HAL[/green]")
         console.print("[dim]Standard STM32 Low-Level drivers, no RTOS overhead[/dim]")
 
     console.print()
     return use_zephyr
+
+
+def _install_zephyr_ui(console) -> bool:
+    """安装 Zephyr RTOS 的交互式向导"""
+    import subprocess
+    import os
+    import sys
+    from pathlib import Path
+
+    console.print("\n[bold blue]Zephyr RTOS 安装向导[/bold blue]\n")
+
+    # 1. 检查 Python 版本
+    console.print("[1/4] 检查 Python 环境...")
+    if sys.version_info < (3, 8):
+        console.print("[red][FAIL] 需要 Python 3.8+[/red]")
+        return False
+    console.print(f"[green][OK] Python {sys.version_info.major}.{sys.version_info.minor}[/green]\n")
+
+    # 2. 安装 west
+    console.print("[2/4] 安装 west 工具...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "west"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            console.print("[green][OK] west 安装成功[/green]\n")
+        else:
+            console.print(f"[yellow][!] west 可能已安装: {result.stderr[:100]}[/yellow]\n")
+    except Exception as e:
+        console.print(f"[yellow][!] west 安装检查: {e}[/yellow]\n")
+
+    # 3. 获取 Zephyr 安装路径
+    default_path = str(Path.home() / "zephyrproject")
+    console.print("[3/4] 配置安装路径")
+    console.print(f"[dim]默认路径: {default_path}[/dim]")
+
+    from rich.prompt import Prompt
+
+    custom_path = Prompt.ask("安装路径", default=default_path)
+    install_path = Path(custom_path).resolve()
+
+    # 4. 下载 Zephyr（使用 git）
+    console.print("\n[4/4] 下载 Zephyr RTOS (~500MB)...")
+    console.print("[dim]这可能需要 5-30 分钟，取决于网络速度...[/dim]\n")
+
+    zephyr_dir = install_path / "zephyr"
+
+    try:
+        install_path.mkdir(parents=True, exist_ok=True)
+
+        # 尝试使用 git 克隆
+        console.print("尝试克隆 Zephyr 仓库...")
+        result = subprocess.run(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                "v3.5.0",
+                "https://github.com/zephyrproject-rtos/zephyr.git",
+                str(zephyr_dir),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 分钟超时
+        )
+
+        if result.returncode != 0:
+            console.print(f"[red][FAIL] Git 克隆失败: {result.stderr[:200]}[/red]")
+            console.print("[yellow]提示: 检查网络连接或手动下载[/yellow]")
+            console.print(
+                f"[dim]手动安装指南: https://docs.zephyrproject.org/latest/develop/getting_started/index.html[/dim]"
+            )
+            return False
+
+        # 5. 设置环境变量
+        console.print("\n[bold]设置环境变量...[/bold]")
+        console.print(f"[green]ZEPHYR_BASE = {zephyr_dir}[/green]")
+
+        # 设置当前进程的环境变量
+        os.environ["ZEPHYR_BASE"] = str(zephyr_dir)
+
+        # 尝试更新 west 模块
+        console.print("\n[dim]初始化 west 模块（可选）...[/dim]")
+        try:
+            subprocess.run(
+                ["west", "update"], cwd=str(install_path), capture_output=True, timeout=300
+            )
+        except:
+            pass  # 非关键步骤，失败也没关系
+
+        console.print(f"\n[green bold][OK] Zephyr 安装成功！[/green bold]")
+        console.print(f"[dim]位置: {zephyr_dir}[/dim]")
+        console.print("\n[yellow]注意: 请重启终端或 IDE 以加载新的环境变量[/yellow]")
+
+        return True
+
+    except subprocess.TimeoutExpired:
+        console.print("[red][FAIL] 下载超时，请检查网络连接[/red]")
+        console.print("[yellow]提示: 网络较慢时可以手动下载[/yellow]")
+        return False
+    except Exception as e:
+        console.print(f"[red][FAIL] 安装失败: {e}[/red]")
+        return False
 
 
 def _ensure_cube_with_ui(
@@ -825,19 +947,36 @@ def _run_renode_simulation_ui(elf_path: Path, mcu: str, console: Console) -> Non
     console.print("")
 
     try:
-        # 启动仿真（阻塞模式）
-        result = sim.start(elf_path, mcu=mcu, config=config, blocking=True, timeout=60)
+        # 启动仿真（非阻塞模式，让用户可以与 Renode monitor 交互）
+        success = sim.start(elf_path, mcu=mcu, config=config, blocking=False)
 
-        if result:
-            console.print("[green][OK] Simulation completed successfully[/green]")
-        else:
-            console.print("[yellow][!] Simulation ended[/yellow]")
+        if not success:
+            console.print("[red][X] Failed to start simulation[/red]")
+            return
+
+        console.print("[green][OK] Simulation started[/green]")
+        console.print("")
+        console.print("[cyan]Renode monitor is now active. Type commands:[/cyan]")
+        console.print("  pause       - Pause simulation")
+        console.print("  continue    - Resume simulation")
+        console.print("  showDevices - List devices")
+        console.print("  quit        - Exit Renode")
+        console.print("")
+        console.print("[dim]Waiting for simulation to complete...[/dim]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]")
+        console.print("")
+
+        # 等待仿真结束（阻塞当前线程）
+        while sim.is_running():
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
-        console.print("\n[yellow][!] Simulation interrupted by user[/yellow]")
+        console.print("\n[yellow][!] Stopping simulation...[/yellow]")
         sim.stop()
+        console.print("[green][OK] Simulation stopped[/green]")
     except Exception as e:
         console.print(f"[red][X] Simulation error: {e}[/red]")
+        sim.stop()
 
 
 def _start_serial_monitor_ui(console: Console) -> None:
