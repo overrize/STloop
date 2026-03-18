@@ -129,7 +129,7 @@ stloop sim --mcu list
 ## 项目结构
 
 ```
-stloop/
+stloop/                 # 核心代码
 ├── stloop/
 │   ├── client.py       # 核心 API
 │   ├── cli_rich.py     # 命令行界面
@@ -137,9 +137,9 @@ stloop/
 │   ├── simulators/     # 硬件仿真 (Renode)
 │   ├── ui/            # 可视化组件
 │   └── hardware/      # MCU 数据库
-├── templates/         # CMake 工程模板
-├── demos/            # 示例项目
-└── docs/            # 文档
+├── templates/          # CMake 工程模板
+├── examples/           # 示例项目
+└── docs/               # 文档
 ```
 
 ## API 使用
