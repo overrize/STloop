@@ -117,6 +117,8 @@ def _build_zephyr(
         log.info(f"{msg}，回退到标准 CMSIS 构建...")
         return _build_cmake(project_dir, build_dir, board)
 
+    zephyr_base = os.environ.get("ZEPHYR_BASE")
+    west = shutil.which("west")
     log.info("ZEPHYR_BASE: %s", zephyr_base)
     log.info("目标板: %s", board)
 
@@ -141,7 +143,7 @@ def _build_zephyr(
         ]
         for elf_path in elf_paths:
             if elf_path.exists():
-                log.info("✓ Zephyr 构建成功: %s", elf_path)
+                log.info("[OK] Zephyr 构建成功: %s", elf_path)
                 return elf_path
 
         raise BuildError("构建成功但未找到 ELF 文件")

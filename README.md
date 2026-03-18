@@ -204,9 +204,22 @@ stloop -v gen "test" --build
 
 ## 文档
 
+- [Zephyr + Renode 端到端测试](docs/ZEPHYR_RENODE_E2E.md) - Zephyr 构建到 Renode 仿真的完整流程
 - [开发经验](docs/LESSONS.md) - 踩坑记录
 - [Renode 仿真计划](docs/RENODE_PLAN.md) - 仿真功能详情
 - [决策清单](docs/DECISION_CHECKLIST.md) - 设计决策
+
+### Zephyr + Renode 快速测试
+
+```bash
+# 运行端到端测试
+python test_zephyr_renode_e2e.py
+
+# 手动分步测试
+cd test_zephyr
+stloop build . --board nucleo_f411re
+renode --console build/simulation.resc
+```
 
 ## License
 
