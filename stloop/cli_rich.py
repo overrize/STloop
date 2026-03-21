@@ -95,6 +95,28 @@ def main() -> int:
     )
     p_gen.set_defaults(func=_cmd_gen)
 
+    # run - end-to-end automation
+    p_run = sub.add_parser("run", help="End-to-end automation (generate → build → flash → verify)")
+    p_run.add_argument("prompt", help="Requirement description, e.g.: PA5 LED blinking")
+    p_run.add_argument("-o", "--output", type=Path, help="Output directory")
+    p_run.add_argument(
+        "-b", "--board", default="nucleo_f411re", help="Target board (default: nucleo_f411re)"
+    )
+    p_run.add_argument("--no-flash", action="store_true", help="Skip flashing")
+    p_run.add_argument("--no-verify", action="store_true", help="Skip verification")
+    p_run.add_argument(
+        "--expect",
+        type=str,
+        help="Expected behavior for verification, e.g.: 'LED should blink at 1Hz'",
+    )
+    p_run.add_argument(
+        "--max-iter",
+        type=int,
+        default=5,
+        help="Maximum iterations for auto-fix (default: 5)",
+    )
+    p_run.set_defaults(func=_cmd_run)
+
     # catalog - 新增：硬件目录
     p_catalog = sub.add_parser("catalog", help="Browse hardware catalog")
     p_catalog.add_argument(
@@ -255,6 +277,61 @@ def _cmd_gen(client: STLoopClient, args) -> int:
                 _start_serial_monitor_ui(console)
 
     return 0
+
+
+def _cmd_run(client: STLoopClient, args) -> int:
+    """端到端自动化命令"""
+    console = get_console()
+
+    from .agents import run_end_to_end
+    from .ui.components import create_progress
+
+    render_header("End-to-End Automation", subtitle=args.board)
+
+    output_dir = args.output or client.work_dir / "stloop_projects"
+
+    def progress_callback(stage: str, percent: float):
+        console.print(f"[cyan]{stage}...[/cyan] ({percent:.0f}%)")
+
+    try:
+        with create_progress() as progress:
+            task = progress.add_task("Running end-to-end automation...", total=100)
+
+            def update_progress(stage: str, percent: float):
+                progress.update(task, completed=percent, description=stage)
+
+            result = run_end_to_end(
+                prompt=args.prompt,
+                board=args.board,
+                output_dir=output_dir,
+                auto_flash=not args.no_flash,
+                auto_verify=not args.no_verify,
+                expected_behavior=args.expect,
+                max_iterations=args.max_iter,
+                progress_callback=update_progress,
+            )
+
+        if result.success:
+            _print_success(
+                "End-to-end automation completed successfully!",
+                project=str(result.project_path),
+                elf=str(result.elf_path),
+                time=f"{result.total_time:.1f}s",
+                iterations=len(result.iterations),
+            )
+            return 0
+        else:
+            _print_error(
+                f"End-to-end automation failed after {len(result.iterations)} iterations",
+                hint="Check the logs above for details",
+            )
+            console.print("\n[dim]Execution Summary:[/dim]")
+            console.print(result.summary)
+            return 1
+
+    except Exception as e:
+        _print_error(f"End-to-end automation error: {e}")
+        return 1
 
 
 def _cmd_catalog(client: STLoopClient, args) -> int:

@@ -1,0 +1,30 @@
+---
+description: STM32 code generation constraints - enforces LL library usage, safety checks, and prompt quality
+globs: stloop/client.py,stloop/llm_client.py,stloop/code_validator.py
+alwaysApply: false
+---
+
+# STM32 Code Generation Rules
+
+## LL Library Only
+- Generated STM32 code MUST use LL (Low-Layer) library functions (`LL_GPIO_*`, `LL_RCC_*`, etc.)
+- HAL library calls (`HAL_*`) are FORBIDDEN unless the user explicitly requests HAL
+- If HAL calls are detected in generated output, flag them and regenerate
+
+## Safety Checks Required
+- All generated C code MUST pass `check_code_safety()` before being written to disk
+- All generated C code MUST pass `validate_generated_code()` for structural quality
+- These checks live in `stloop/code_validator.py` and must be called in the `gen()` flow before file write
+
+## System Prompt Requirements
+When modifying the system prompt for code generation, it MUST include:
+1. Explicit LL library constraint with example includes
+2. `SystemClock_Config()` with HSE-to-HSI fallback error handling
+3. Register address comments for non-obvious peripheral configuration
+4. At least one few-shot example (blink pattern recommended)
+
+## Dangerous Patterns
+Never allow generated code containing:
+- `system()`, `exec*()`, `popen()` calls
+- Inline assembly (`__asm`, `asm(`) without explicit user request
+- `#include <stdlib.h>` or `#include <unistd.h>` (not needed for bare-metal)

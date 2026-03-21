@@ -1,0 +1,24 @@
+[package]
+name = "stloop-ui"
+version = "0.1.0"
+description = "STLoop - Zephyr RTOS AI Assistant"
+authors = ["STLoop Team"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5.0", features = [] }
+
+[dependencies]
+tauri = { version = "1.5.0", features = ["shell-open", "fs-all", "path-all", "dialog-all", "notification-all"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+futures = "0.3"
+dirs = "5.0"
+which = "5.0"
+uuid = { version = "1.0", features = ["v4"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

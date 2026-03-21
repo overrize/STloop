@@ -1,0 +1,50 @@
+# Locked dependencies for stloop 0.1.0
+# Generated from pyproject.toml [project.dependencies]
+# Re-generate: pip-compile pyproject.toml -o requirements-lock.txt
+#
+# Core dependencies
+openai==1.109.1
+pyocd==0.42.0
+pyyaml==6.0.3
+python-dotenv==1.2.1
+rich==14.3.1
+
+# Transitive dependencies (openai)
+httpx==0.28.1
+httpcore==1.0.9
+anyio==4.12.1
+sniffio==1.3.1
+distro==1.9.0
+jiter==0.13.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+typing_extensions==4.15.0
+certifi==2025.11.12
+idna==3.11
+h11==0.16.0
+annotated-types==0.7.0
+
+# Transitive dependencies (pyocd)
+pyelftools==0.32
+intelhex==2.3.0
+pylink-square==1.7.0
+cmsis-pack-manager==0.6.0
+prettytable==3.17.0
+pyusb==1.3.1
+capstone==5.0.6
+intervaltree==3.2.1
+natsort==8.4.0
+hidapi==0.15.0
+libusb-package==1.0.26.1
+
+# Transitive dependencies (rich)
+markdown-it-py==4.0.0
+pygments==2.19.2
+mdurl==0.1.2
+
+# Transitive dependencies (common)
+colorama==0.4.6
+packaging==25.0
+six==1.17.0
+sortedcontainers==2.4.0
+wcwidth==0.6.0

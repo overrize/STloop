@@ -9,6 +9,7 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -20,6 +21,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -29,5 +31,13 @@ jobs:
       - name: Ruff check
         run: ruff check stloop/ tests/ --output-format=github
 
-      - name: Pytest
-        run: pytest tests/ -v
+      - name: Unit tests (skip integration & hardware)
+        run: pytest tests/ -v -m "not integration and not hardware" --cov=stloop --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14

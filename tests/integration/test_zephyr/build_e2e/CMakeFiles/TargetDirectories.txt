@@ -1,3 +1,0 @@
-E:/bitloop_embedderdev-kind/tests/integration/test_zephyr/build_e2e/CMakeFiles/stm32_app.elf.dir
-E:/bitloop_embedderdev-kind/tests/integration/test_zephyr/build_e2e/CMakeFiles/edit_cache.dir
-E:/bitloop_embedderdev-kind/tests/integration/test_zephyr/build_e2e/CMakeFiles/rebuild_cache.dir

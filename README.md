@@ -1,246 +1,154 @@
-# STLoop — STM32 AI Firmware Engineer
+# STLoop v0.2.0 - Zephyr RTOS Edition
 
-自然语言驱动 STM32 固件开发。描述需求 → AI 生成代码 → 自动编译 → 烧录/仿真 → 验证测试。
+自然语言驱动 Zephyr RTOS 固件开发。描述需求 → AI 生成代码 → 自动构建 → 烧录/仿真。
 
-## 快速开始
+## 🚀 快速开始
+
+### 1. 安装依赖
 
 ```bash
-# 安装
+# 安装 Zephyr SDK
+# https://docs.zephyrproject.org/latest/develop/getting_started/index.html
+
+# 安装 west 工具
+pip install west
+
+# 克隆项目
+git clone https://github.com/yourusername/stloop.git
+cd stloop
+git checkout zephyr-only-redesign
+
+# 安装 Python 包
 pip install -e .
-
-# 启动（首次运行会提示配置 API）
-python -m stloop
 ```
 
-**首次启动流程：**
-1. 自动检测 API 配置
-2. 交互式选择 LLM 提供商（Kimi/OpenAI/其他）
-3. 输入 API Key（密码输入，安全隐藏）
-4. 自动保存到 `.env` 文件
-
-无需手动创建配置文件！
-
-## 核心功能
-
-| 功能 | 命令 |
-|------|------|
-| 交互式开发 | `python -m stloop` |
-| 生成+编译+烧录 | `stloop gen "PA5 LED闪烁" --build --flash` |
-| 硬件仿真 (无需硬件) | `stloop gen "PA5 LED闪烁" --build --sim` |
-| 硬件目录 | `stloop catalog` |
-| 环境检查 | `stloop check` |
-| 串口监控 | `stloop monitor` |
-
-## 前置依赖
+### 2. 配置环境变量
 
 ```bash
-# 必需: 编译工具链
-arm-none-eabi-gcc  # https://developer.arm.com/downloads/-/gnu-rm
-cmake >= 3.15
+# Linux/Mac
+export ZEPHYR_BASE=~/zephyrproject/zephyr
+export OPENAI_API_KEY=your-api-key
 
-# 可选: 烧录调试
-pyocd  # pip install pyocd
-
-# 可选: 硬件仿真
-renode  # https://renode.io (已内置 STM32F4 支持)
+# Windows
+set ZEPHYR_BASE=C:\zephyrproject\zephyr
+set OPENAI_API_KEY=your-api-key
 ```
 
-## 使用示例
-
-### 1. 交互式开发 (推荐)
-```bash
-$ python -m stloop
-
-Step 1: Hardware Selection
-Available MCUs: STM32F411RE, STM32F407VG, STM32F446RE, ESP32-S3...
-Select MCU (number): 1
-
-Step 2: Requirement
-Your requirement: PA5 LED blink 1Hz
-
-Step 3: Additional Resources (Optional)
-Schematic path (Enter to skip): 
-Datasheet PDFs (comma-separated, Enter to skip): 
-
-Step 4: Preparing Dependencies
-[OK] STM32CubeF4 found
-
-Step 5: Code Generation
-Generating code...
-[OK] Code generated at: projects/generated/
-
-Step 6: Build
-Building with CMake...
-[OK] Build successful: build/firmware.elf
-
-Step 7: Deploy & Test
-Choose how to run your firmware:
-  1. Flash to real hardware (requires ST-Link)
-  2. Simulate with Renode (no hardware needed)  <-- 默认
-  3. Skip (build only)
-Select option [2]: 
-
-[OK] Renode found
-[OK] Platform: platforms/cpus/stm32f411.repl
-[OK] Generated: simulation.resc
-Starting simulation...
-[OK] Simulation completed successfully
-```
-
-### 2. 一键生成+烧录
-```bash
-# 生成、编译、烧录到硬件
-stloop gen "UART1 echo at 115200" --build --flash
-
-# 烧录后启动串口监控
-stloop gen "ADC read PA0" --build --flash --monitor
-```
-
-### 3. 硬件仿真 (无需物理硬件)
-```bash
-# 生成、编译、仿真
-stloop gen "TIM2 PWM PA5 1kHz" --build --sim --mcu STM32F411RE
-
-# 单独仿真已有固件
-stloop sim build/firmware.elf --mcu STM32F407VG --gui
-
-# 查看支持的 MCU
-stloop sim --mcu list
-```
-
-## 技术栈
-
-- **代码生成**: LLM (Kimi/OpenAI/兼容 OpenAI API)
-- **HAL 库**: STM32 LL 库 (Low Layer)
-- **构建系统**: CMake + arm-none-eabi-gcc
-- **烧录调试**: pyOCD + ST-Link
-- **硬件仿真**: Renode (STM32F4 系列)
-- **串口监控**: pyserial
-
-## 支持的 MCU
-
-| 系列 | 型号 | 状态 |
-|------|------|------|
-| STM32F4 | F411RE, F407VG, F405RG, F446RE | ✅ 完整支持 |
-| ESP32 | S3, C3 | ✅ 支持 |
-| nRF52 | nRF52840 | ✅ 支持 |
-| RP2040 | Pico | ✅ 支持 |
-
-## 项目结构
-
-```
-stloop/                 # 核心代码
-├── stloop/
-│   ├── client.py       # 核心 API
-│   ├── cli_rich.py     # 命令行界面
-│   ├── chat_rich.py    # 交互式终端
-│   ├── simulators/     # 硬件仿真 (Renode)
-│   ├── ui/            # 可视化组件
-│   └── hardware/      # MCU 数据库
-├── templates/          # CMake 工程模板
-├── examples/           # 示例项目
-└── docs/               # 文档
-```
-
-## API 使用
-
-```python
-from stloop import STLoopClient
-
-client = STLoopClient()
-
-# 运行 Demo
-elf = client.demo_blink(flash=True)
-
-# 构建项目
-elf = client.build("my_project/")
-
-# 烧录固件
-client.flash(elf)
-
-# 硬件仿真 (无需硬件)
-from stloop.simulators import RenodeSimulator
-sim = RenodeSimulator()
-sim.start(elf, mcu="STM32F411RE")
-```
-
-## 配置说明
-
-### 自动配置（推荐）
-首次运行 `python -m stloop` 时会自动引导配置。
-
-### 手动配置
-如需手动配置或修改，编辑 `.env` 文件：
+### 3. 使用
 
 ```bash
-# Kimi (Moonshot) - 推荐国内用户
-OPENAI_API_KEY=sk-your-key
-OPENAI_API_BASE=https://api.moonshot.cn/v1
-OPENAI_MODEL=kimi-k2-0905-preview
+# 生成项目
+stloop generate "PA5 LED 每秒闪烁一次" --board nucleo_f411re
 
-# OpenAI
-OPENAI_API_KEY=sk-your-key
+# 构建
+cd stloop_projects/project_name
+west build -b nucleo_f411re
+
+# 烧录
+west flash
 ```
 
-### 环境变量
-也可通过环境变量配置（优先级高于 `.env`）：
-```bash
-export OPENAI_API_KEY=sk-your-key
-export OPENAI_API_BASE=https://api.moonshot.cn/v1
-```
+## 📦 三种使用方式
 
-## 故障排除
+### 方式一：命令行 (推荐)
 
 ```bash
-# 检查环境
-stloop check
+# 交互模式
+stloop chat
 
-# 下载 STM32CubeF4
-stloop cube-download
+# 直接生成
+stloop generate "描述你的需求" --board nucleo_f411re
 
-# 调试模式
-stloop -v gen "test" --build
+# 查看支持的 boards
+stloop boards
 ```
 
-## 文档
-
-- [Zephyr + Renode 端到端测试](docs/ZEPHYR_RENODE_E2E.md) - Zephyr 构建到 Renode 仿真的完整流程
-- [Cube vs Zephyr 选择指南](docs/CUBE_VS_ZEPHYR.md) - 为什么默认使用 Cube，如何切换到 Zephyr
-- [开发经验](docs/LESSONS.md) - 踩坑记录
-- [Renode 仿真计划](docs/RENODE_PLAN.md) - 仿真功能详情
-- [决策清单](docs/DECISION_CHECKLIST.md) - 设计决策
-
-### Zephyr + Renode 快速测试
+### 方式二：桌面应用 (Tauri)
 
 ```bash
-# 运行端到端测试
-python test_zephyr_renode_e2e.py
-
-# 手动分步测试
-cd test_zephyr
-stloop build . --board nucleo_f411re
-renode --console build/simulation.resc
+cd stloop-ui
+npm install
+npm run tauri:dev    # 开发模式
+npm run tauri:build  # 构建
 ```
 
-### 为什么用 Cube 而不是 Zephyr？
+### 方式三：Web 版本 (纯浏览器)
 
-**默认使用 Cube**（简单、轻量、即装即用）：
 ```bash
-stloop gen "PA5 LED闪烁"  # 使用 Cube HAL/LL
+cd stloop-web
+npm install
+npm run dev      # 开发服务器
+npm run build    # 构建到 dist/
 ```
 
-**手动切换到 Zephyr**（功能丰富、跨平台）：
-```bash
-# 方法1：使用 Zephyr 模板
-cp -r templates/zephyr my_project
-# 修改代码后构建
-west build -b nucleo_f411re my_project
+## ✨ 特性
 
-# 方法2：转换现有项目（见文档）
+- 🤖 **AI 代码生成** - 自然语言 → Zephyr C 代码
+- 🎯 **多 Board 支持** - Nucleo F411RE/F401RE/F446RE, Discovery
+- 🔨 **一键构建** - 集成 west build
+- ⚡ **一键烧录** - 集成 west flash
+- 🖥️ **桌面应用** - Tauri 跨平台 (Windows/Mac/Linux)
+- 🌐 **Web 版本** - 无需安装，浏览器即用
+- 📦 **ZIP 导出** - 下载到本地构建
+
+## 📋 支持的 Boards
+
+| Board | MCU | 状态 |
+|-------|-----|------|
+| nucleo_f411re | STM32F411RE | ✅ |
+| nucleo_f401re | STM32F401RE | ✅ |
+| nucleo_f446re | STM32F446RE | ✅ |
+| stm32f4_disco | STM32F407VG | ✅ |
+
+## 🏗️ 架构
+
+```
+STLoop
+├── stloop/           # Python 核心
+│   ├── llm_client.py      # LLM 代码生成
+│   ├── project_generator.py  # 项目生成
+│   ├── builder.py         # west 封装
+│   └── hardware/          # Board 数据库
+├── stloop-ui/        # Tauri 桌面应用
+│   ├── src-tauri/    # Rust 后端
+│   └── src/          # React 前端
+├── stloop-web/       # Web 版本
+│   └── src/          # React 前端
+└── templates/
+    └── zephyr/       # Zephyr 模板
 ```
 
-详细对比和迁移指南：[Cube vs Zephyr](docs/CUBE_VS_ZEPHYR.md)
+## 📖 文档
 
-## License
+- [用户指南](docs/USER_GUIDE.md) - 详细使用说明
+- [开发文档](docs/DEVELOPMENT.md) - 贡献者指南
+- [架构设计](ARCHITECTURE.md) - 架构说明
+- [API 文档](docs/API.md) - API 参考
 
-MIT
+## 🎯 工作流程
+
+```
+用户输入 → LLM 生成代码 → west build → west flash
+```
+
+## 🔧 系统要求
+
+- Python 3.10+
+- Zephyr SDK
+- west 工具
+- (可选) Node.js 18+ (桌面/Web 开发)
+- (可选) Rust (桌面开发)
+
+## 🤝 贡献
+
+欢迎 PR 和 Issue！
+
+## 📄 许可证
+
+MIT License
+
+## 🙏 致谢
+
+- [Zephyr Project](https://zephyrproject.org/)
+- [OpenAI](https://openai.com/) / [Kimi](https://moonshot.cn/)
+- [Tauri](https://tauri.app/)

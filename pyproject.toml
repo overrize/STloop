@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "pytest-cov", "ruff", "pip-audit"]
 pdf = ["pypdf>=4.0"]  # 原理图/芯片手册 PDF 文本提取
 
 [project.scripts]
@@ -26,6 +26,12 @@ stloop = "stloop.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["stloop*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: 需要 ARM 工具链的集成测试",
+    "hardware: 需要物理硬件连接的测试",
+]
 
 [tool.ruff]
 line-length = 100

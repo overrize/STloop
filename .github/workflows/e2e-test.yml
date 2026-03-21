@@ -10,6 +10,7 @@ on:
 jobs:
   e2e-test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +24,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: 'pip'
 
     - name: Install dependencies (Ubuntu)
       if: runner.os == 'Linux'
@@ -35,21 +37,43 @@ jobs:
       run: |
         choco install cmake ninja -y
 
-    - name: Install ARM toolchain (Ubuntu)
+    - name: Cache ARM toolchain (Ubuntu)
       if: runner.os == 'Linux'
+      id: cache-arm-linux
+      uses: actions/cache@v4
+      with:
+        path: /opt/arm-gnu-toolchain
+        key: arm-gnu-toolchain-13.2.rel1-linux-x86_64
+
+    - name: Install ARM toolchain (Ubuntu)
+      if: runner.os == 'Linux' && steps.cache-arm-linux.outputs.cache-hit != 'true'
       run: |
         wget -q https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
         tar -xf arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
         sudo mv arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi /opt/arm-gnu-toolchain
-        echo "/opt/arm-gnu-toolchain/bin" >> $GITHUB_PATH
+
+    - name: Add ARM toolchain to PATH (Ubuntu)
+      if: runner.os == 'Linux'
+      run: echo "/opt/arm-gnu-toolchain/bin" >> $GITHUB_PATH
+
+    - name: Cache ARM toolchain (Windows)
+      if: runner.os == 'Windows'
+      id: cache-arm-win
+      uses: actions/cache@v4
+      with:
+        path: C:\arm-toolchain
+        key: arm-gnu-toolchain-13.2.rel1-win-i686
 
     - name: Install ARM toolchain (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && steps.cache-arm-win.outputs.cache-hit != 'true'
       run: |
         $url = "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-mingw-w64-i686-arm-none-eabi.zip"
         Invoke-WebRequest -Uri $url -OutFile arm-toolchain.zip
         Expand-Archive -Path arm-toolchain.zip -DestinationPath C:\arm-toolchain
-        echo "C:\arm-toolchain\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+    - name: Add ARM toolchain to PATH (Windows)
+      if: runner.os == 'Windows'
+      run: echo "C:\arm-toolchain\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
     - name: Install STLoop
       run: |
@@ -77,8 +101,9 @@ jobs:
 
   e2e-test-with-sim:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: contains(github.event.head_commit.message, '[test-sim]') || github.event_name == 'workflow_dispatch'
-    
+
     steps:
     - uses: actions/checkout@v4
 
@@ -86,18 +111,29 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        cache: 'pip'
 
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake ninja-build
 
+    - name: Cache ARM toolchain
+      id: cache-arm-sim
+      uses: actions/cache@v4
+      with:
+        path: /opt/arm-gnu-toolchain
+        key: arm-gnu-toolchain-13.2.rel1-linux-x86_64
+
     - name: Install ARM toolchain
+      if: steps.cache-arm-sim.outputs.cache-hit != 'true'
       run: |
         wget -q https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
         tar -xf arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
         sudo mv arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi /opt/arm-gnu-toolchain
-        echo "/opt/arm-gnu-toolchain/bin" >> $GITHUB_PATH
+
+    - name: Add ARM toolchain to PATH
+      run: echo "/opt/arm-gnu-toolchain/bin" >> $GITHUB_PATH
 
     - name: Install Renode
       run: |

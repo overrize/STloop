@@ -1,0 +1,26 @@
+---
+description: CI/CD workflow quality rules - ensures workflow correctness and performance
+globs: .github/workflows/*.yml
+alwaysApply: false
+---
+
+# CI Workflow Rules
+
+## Script Path Integrity
+- Every script path referenced in a workflow step (`run: python <path>`) MUST exist in the repository
+- Before adding or changing a script reference, verify the file exists with a glob search
+
+## Required CI Patterns
+- All E2E jobs MUST use `actions/upload-artifact@v4` to upload test artifacts on success and failure (`if: always()`)
+- Matrix builds MUST enable pip caching via `actions/setup-python` with `cache: 'pip'`
+- ARM toolchain downloads SHOULD be cached to avoid re-downloading ~200MB per run
+
+## Test Separation
+- `ci.yml` runs unit tests: `pytest -m "not integration and not hardware"`
+- `e2e-test.yml` runs integration/E2E tests that need the ARM toolchain
+- Never mix unit and integration tests in the same job without marker filtering
+
+## Timeout Policy
+- Unit test jobs: `timeout-minutes: 5`
+- E2E test jobs: `timeout-minutes: 15`
+- Simulation jobs: `timeout-minutes: 20`
