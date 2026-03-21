@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { X, Check, AlertCircle } from 'lucide-react';
 import './SettingsModal.css';
@@ -52,8 +52,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           model: config.model
         }
       });
-      
-      // Validate after saving
+
       const isValid = await invoke<boolean>('validate_llm_config');
       setValidationStatus(isValid ? 'valid' : 'invalid');
       

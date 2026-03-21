@@ -1,18 +1,19 @@
-import React from 'react';
 import { MessageCircle, Plus, Trash2, Settings, Cpu } from 'lucide-react';
 import './Sidebar.css';
 
 interface Project {
   id: string;
   name: string;
+  path: string;
   board: string;
+  created_at: string;
   status: string;
 }
 
 interface SidebarProps {
   projects: Project[];
   currentProject: Project | null;
-  onSelectProject: (project: Project) => void;
+  onSelectProject: (project: Project | null) => void;
   onDeleteProject: (projectId: string) => void;
   onSettingsClick: () => void;
 }
