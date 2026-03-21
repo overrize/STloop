@@ -13,6 +13,7 @@ gen → build → sim，无需 pyOCD 与实体硬件
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional, Dict, List
@@ -104,10 +105,17 @@ def _get_renode_platforms_dir() -> Optional[Path]:
     bin_path = find_renode_bin()
     if not bin_path:
         return None
-    # platforms 目录在 Renode 安装目录下
     platforms_dir = bin_path.parent.parent / "platforms"
     if platforms_dir.exists():
         return platforms_dir
+    if sys.platform == "win32":
+        bin_str = str(bin_path)
+        if len(bin_str) > 2 and bin_str[0] == "/" and bin_str[2] == "/":
+            drive = bin_str[1].upper() + ":"
+            windows_path = Path(drive + bin_str[2:])
+            platforms_dir = windows_path.parent.parent / "platforms"
+            if platforms_dir.exists():
+                return platforms_dir
     return None
 
 
@@ -134,27 +142,16 @@ def generate_resc_script(
     if output_path is None:
         output_path = elf_path.parent / "simulation.resc"
 
-    # 获取平台文件 - 使用绝对路径
-    platform = get_platform_file(mcu)
-    if platform is None:
-        platform = "platforms/cpus/stm32f4.repl"
+    platform = get_platform_file(mcu) or "platforms/cpus/stm32f4.repl"
 
-    # 转换为绝对路径
     platforms_dir = _get_renode_platforms_dir()
     if platforms_dir:
         platform_file = platforms_dir / platform.replace("platforms/", "").replace("/", os.sep)
         if platform_file.exists():
-            platform = str(platform_file)
+            platform = str(platform_file).replace("\\", "/")
 
-    # 转换 ELF 路径为绝对路径
     elf_abs_path = Path(elf_path).resolve()
-
-    # Windows 路径需要特殊处理
-    if os.name == "nt":  # Windows
-        # Renode 使用 Python 字符串，需要双反斜杠或正斜杠
-        elf_path_str = str(elf_abs_path).replace("\\", "/")
-    else:
-        elf_path_str = str(elf_abs_path)
+    elf_path_str = str(elf_abs_path).replace("\\", "/")
 
     # 生成脚本内容 - 使用正确的 Renode 语法
     script_lines = [
@@ -171,13 +168,15 @@ def generate_resc_script(
         f'sysbus LoadELF "{elf_path_str}"',
     ]
 
-    # 添加 UART 支持
     if config.enable_uart:
+        import tempfile
+
+        uart_path = tempfile.gettempdir().replace("\\", "/") + "/renode_uart"
         script_lines.extend(
             [
                 "",
                 "; Setup UART",
-                'emulation CreateUartPtyTerminal "term" "/tmp/uart"',
+                f'emulation CreateUartPtyTerminal "term" "{uart_path}"',
                 "connector Connect sysbus.usart1 term",
             ]
         )
@@ -210,36 +209,29 @@ def run(
     repl_path: Optional[Path] = None,
     timeout_sec: Optional[int] = None,
     mcu: str = "STM32F411RE",
+    headless: bool = True,
 ) -> subprocess.CompletedProcess:
-    """
-    在 Renode 中加载并运行 elf。
-
-    :param elf_path: 裸机 elf 文件路径
-    :param repl_path: 可选 .repl 机器描述；不传则使用 MCU 自动选择
-    :param timeout_sec: 运行超时秒数，超时则终止 Renode
-    :param mcu: MCU 型号，用于自动选择平台
-    :return: 子进程结果（returncode、stdout、stderr）
-    """
+    """Run ELF in Renode simulator."""
     elf_path = Path(elf_path).resolve()
     if not elf_path.is_file():
-        raise FileNotFoundError(f"elf 不存在: {elf_path}")
+        raise FileNotFoundError(f"ELF not found: {elf_path}")
 
     bin_path = find_renode_bin()
     if not bin_path:
         raise RuntimeError(
-            "未找到 Renode。请安装 Renode 并加入 PATH，或设置环境变量 RENODE_BIN。"
-            "参见 https://renode.io/"
+            "Renode not found. Please install Renode and add to PATH, "
+            "or set RENODE_BIN environment variable. "
+            "See https://renode.io/"
         )
 
-    # 生成 .resc 脚本
     resc_script = generate_resc_script(elf_path, mcu=mcu)
 
-    # 运行 Renode
-    cmd = [
-        str(bin_path),
-        str(resc_script),
-        "--console",
-    ]
+    cmd = [str(bin_path), str(resc_script)]
+
+    if headless:
+        cmd.extend(["--disable-xwt", "--port", "0"])
+    else:
+        cmd.append("--console")
 
     timeout = (timeout_sec + 10) if timeout_sec else 60
     return subprocess.run(

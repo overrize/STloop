@@ -10,6 +10,7 @@ from typing import Optional, Callable
 
 from . import _paths
 from .builder import build as _build
+from .code_validator import check_code_safety, validate_generated_code
 from .flasher import flash as _flash
 from .linker_gen import generate_linker_script
 from .llm_client import generate_main_c
@@ -147,9 +148,9 @@ class STLoopClient:
         # 本地未找到，尝试下载
         from .scripts.download_cube import download_cube
 
-        print("\n[!] 未检测到本地 STM32CubeF4")
-        print("[>] 正在自动下载...")
-        self.cube_path = download_cube(self.cube_path, raise_on_fail=True)
+        print("[WARNING] Local STM32CubeF4 not detected")
+        print("[INFO] Downloading automatically...")
+        self.cube_path = download_cube(self.cube_path)
         return self.cube_path
 
     def _copy_template(self, dest: Path, skip_main_c: bool = False):
@@ -371,6 +372,23 @@ class STLoopClient:
             model=model,
             work_dir=self.work_dir,
         )
+
+        safe, safety_warnings = check_code_safety(main_c)
+        if not safe:
+            for w in safety_warnings:
+                log.warning("代码安全检查: %s", w)
+                print(f"  [安全] {w}")
+
+        validation = validate_generated_code(main_c)
+        if validation.errors:
+            for e in validation.errors:
+                log.error("代码质量校验: %s", e)
+                print(f"  [错误] {e}")
+        if validation.warnings:
+            for w in validation.warnings:
+                log.warning("代码质量校验: %s", w)
+                print(f"  [警告] {w}")
+
         print("  [生成] 写入 main.c...")
         (out / "src").mkdir(parents=True, exist_ok=True)
         (out / "inc").mkdir(parents=True, exist_ok=True)

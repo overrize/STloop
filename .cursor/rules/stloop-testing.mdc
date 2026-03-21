@@ -1,0 +1,33 @@
+---
+description: Testing discipline for STLoop core modules - enforces TDD and integration test coverage
+globs: stloop/**/*.py
+alwaysApply: false
+---
+
+# STLoop Testing Rules
+
+## Mandatory Test Coverage
+When modifying any of these core modules, you MUST add or update corresponding tests:
+- `builder.py` -> `tests/unit/test_builder.py` or `tests/integration/test_build_flow.py`
+- `flasher.py` -> `tests/unit/test_flasher.py`
+- `tester.py` -> `tests/unit/test_tester.py`
+- `client.py` -> `tests/unit/test_client.py` or `tests/integration/test_build_flow.py`
+- `code_validator.py` -> `tests/unit/test_code_validator.py`
+
+## TDD Workflow
+For new features:
+1. Write a failing test first
+2. Implement minimal code to pass
+3. Refactor if needed
+4. Verify all related tests pass
+
+## Pytest Markers
+- Unit tests: no special marker needed
+- Integration tests (need toolchain): `@pytest.mark.integration`
+- Hardware tests (need probe): `@pytest.mark.hardware`
+- Run unit only: `pytest -m "not integration and not hardware"`
+
+## Mock Guidelines
+- Mock LLM responses with fixed code strings, never call real API in tests
+- Mock file system operations with `tmp_path` fixture
+- Mock pyOCD/hardware with dependency injection or `unittest.mock`
