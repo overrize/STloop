@@ -1,3 +1,4 @@
+use crate::llm::{generate_code, LLMConfig};
 use crate::project::{BuildResult, EnvCheck, GenerateRequest, ProjectInfo, ProjectStatus};
 use std::path::PathBuf;
 use std::process::Command;
@@ -5,7 +6,28 @@ use std::time::SystemTime;
 use tauri::api::path::document_dir;
 
 #[tauri::command]
+pub async fn get_llm_config() -> Result<LLMConfig, String> {
+    LLMConfig::load()
+}
+
+#[tauri::command]
+pub async fn save_llm_config(config: LLMConfig) -> Result<(), String> {
+    config.save()
+}
+
+#[tauri::command]
+pub async fn validate_llm_config() -> Result<bool, String> {
+    match LLMConfig::load() {
+        Ok(config) => Ok(config.validate().is_ok()),
+        Err(_) => Ok(false),
+    }
+}
+
+#[tauri::command]
 pub async fn generate_project(request: GenerateRequest) -> Result<ProjectInfo, String> {
+    let config = LLMConfig::load()?;
+    config.validate()?;
+    
     let projects_dir = get_projects_dir()?;
     let project_id = uuid::Uuid::new_v4().to_string();
     let project_name = request.name.unwrap_or_else(|| {
@@ -14,22 +36,33 @@ pub async fn generate_project(request: GenerateRequest) -> Result<ProjectInfo, S
     let project_dir = projects_dir.join(&project_id);
     
     std::fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(project_dir.join("src")).map_err(|e| e.to_string())?;
     
-    // 调用 Python stloop 生成项目
-    let output = Command::new("python")
-        .args(&[
-            "-m", "stloop",
-            "generate",
-            &request.prompt,
-            "--board", &request.board,
-            "--output", &project_dir.to_string_lossy(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to generate: {}", e))?;
+    // Generate code via LLM
+    let code = generate_code(&request.prompt, &request.board, &config).await?;
     
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
+    // Write main.c
+    std::fs::write(project_dir.join("src").join("main.c"), code)
+        .map_err(|e| format!("Failed to write main.c: {}", e))?;
+    
+    // Write CMakeLists.txt
+    let cmake_content = r#"cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(stloop_app)
+
+target_sources(app PRIVATE src/main.c)
+"#;
+    std::fs::write(project_dir.join("CMakeLists.txt"), cmake_content)
+        .map_err(|e| format!("Failed to write CMakeLists.txt: {}", e))?;
+    
+    // Write prj.conf
+    let prj_conf = generate_prj_conf(&request.prompt);
+    std::fs::write(project_dir.join("prj.conf"), prj_conf)
+        .map_err(|e| format!("Failed to write prj.conf: {}", e))?;
+    
+    // Write .stloop_board
+    std::fs::write(project_dir.join(".stloop_board"), &request.board)
+        .map_err(|e| format!("Failed to write board config: {}", e))?;
     
     Ok(ProjectInfo {
         id: project_id,
@@ -186,4 +219,43 @@ fn format_time() -> String {
         .unwrap()
         .as_secs();
     format!("{}", now)
+}
+
+fn generate_prj_conf(prompt: &str) -> String {
+    let mut conf = r#"# Zephyr Project Configuration
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y
+CONFIG_SERIAL=y
+CONFIG_GPIO=y
+CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=100000000
+CONFIG_MAIN_STACK_SIZE=1024
+"#.to_string();
+    
+    let lower_prompt = prompt.to_lowercase();
+    
+    if lower_prompt.contains("uart") || lower_prompt.contains("serial") {
+        conf.push_str("CONFIG_UART_INTERRUPT_DRIVEN=y\n");
+    }
+    
+    if lower_prompt.contains("i2c") {
+        conf.push_str("CONFIG_I2C=y\n");
+    }
+    
+    if lower_prompt.contains("spi") {
+        conf.push_str("CONFIG_SPI=y\n");
+    }
+    
+    if lower_prompt.contains("pwm") {
+        conf.push_str("CONFIG_PWM=y\n");
+    }
+    
+    if lower_prompt.contains("adc") {
+        conf.push_str("CONFIG_ADC=y\n");
+    }
+    
+    if lower_prompt.contains("thread") || lower_prompt.contains("task") {
+        conf.push_str("CONFIG_THREAD_STACK_INFO=y\n");
+    }
+    
+    conf
 }

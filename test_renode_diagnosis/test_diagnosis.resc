@@ -1,4 +1,0 @@
-mach create "test"
-machine LoadPlatformDescription @/f/Renode/platforms/cpus/stm32f4.repl
-mach show
-echo "Platform loaded successfully"

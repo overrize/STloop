@@ -3,17 +3,21 @@ import { Send, Cpu, Hammer, Play, Zap } from 'lucide-react';
 import './InputBox.css';
 
 interface InputBoxProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, board: string) => void;
+  currentProjectId?: string;
+  onBuild: () => void;
+  onFlash: () => void;
+  onSimulate: () => void;
 }
 
-export function InputBox({ onSend }: InputBoxProps) {
+export function InputBox({ onSend, currentProjectId, onBuild, onFlash, onSimulate }: InputBoxProps) {
   const [input, setInput] = useState('');
   const [selectedBoard, setSelectedBoard] = useState('nucleo_f411re');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim()) {
-      onSend(`[${selectedBoard}] ${input}`);
+      onSend(input, selectedBoard);
       setInput('');
     }
   };
@@ -52,15 +56,30 @@ export function InputBox({ onSend }: InputBoxProps) {
       </form>
 
       <div className="quick-actions">
-        <button className="action-btn" title="构建">
+        <button
+          className="action-btn"
+          title="构建"
+          onClick={onBuild}
+          disabled={!currentProjectId}
+        >
           <Hammer size={16} />
           <span>构建</span>
         </button>
-        <button className="action-btn" title="烧录">
+        <button
+          className="action-btn"
+          title="烧录"
+          onClick={onFlash}
+          disabled={!currentProjectId}
+        >
           <Zap size={16} />
           <span>烧录</span>
         </button>
-        <button className="action-btn" title="仿真">
+        <button
+          className="action-btn"
+          title="仿真"
+          onClick={onSimulate}
+          disabled={!currentProjectId}
+        >
           <Play size={16} />
           <span>仿真</span>
         </button>

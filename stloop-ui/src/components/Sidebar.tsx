@@ -13,9 +13,11 @@ interface SidebarProps {
   projects: Project[];
   currentProject: Project | null;
   onSelectProject: (project: Project) => void;
+  onDeleteProject: (projectId: string) => void;
+  onSettingsClick: () => void;
 }
 
-export function Sidebar({ projects, currentProject, onSelectProject }: SidebarProps) {
+export function Sidebar({ projects, currentProject, onSelectProject, onDeleteProject, onSettingsClick }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -51,7 +53,13 @@ export function Sidebar({ projects, currentProject, onSelectProject }: SidebarPr
                   <span className="project-name">{project.name}</span>
                   <span className="project-board">{project.board}</span>
                 </div>
-                <button className="delete-btn">
+                <button
+                  className="delete-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteProject(project.id);
+                  }}
+                >
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -61,7 +69,7 @@ export function Sidebar({ projects, currentProject, onSelectProject }: SidebarPr
       </div>
 
       <div className="sidebar-footer">
-        <button className="settings-btn">
+        <button className="settings-btn" onClick={onSettingsClick}>
           <Settings size={18} />
           <span>设置</span>
         </button>
