@@ -1,26 +1,72 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
 .env
 .venv/
 venv/
+*.egg-info/
+*.egg
 
-# Build
+# Build outputs
 output/
 build/
-*.egg-info/
+dist/
 *.elf
 *.bin
 *.hex
 *.map
+*.lst
+
+# Test files (local only, don't commit)
+tests/
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Rust
+Cargo.lock
+target/
+*.rs.bk
 
 # STM32Cube（由脚本下载，不提交）
 cube/
 
 # Config（可能含 API Key）
 config/config.yaml
+*.key
+*.pem
 
 # IDE
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+*.cache
+.mypy_cache/
+.dmypy.json
+
+# Local projects (generated)
+stloop_projects/
+projects/
